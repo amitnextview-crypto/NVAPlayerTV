@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Signage CMS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page-bg"></div>
+  <div class="container">
+    <header class="hero card">
+      <div class="hero-brand">
+        <img src="nvlogo.png" alt="SignagePlayerTV Logo" class="hero-logo" />
+        <div class="hero-copy">
+          <p class="eyebrow">SignagePlayerTV - Developed BY <span class="author-highlight">Amit Maddheshiya</span></p>
+        <h1>Signage CMS</h1>
+        <p class="hero-sub">Configure layout, upload media, and push live updates to connected screens.</p>
+        </div>
+      </div>
+      <div class="hero-actions">
+        <button class="btn primary" type="button" onclick="window.location.reload()">Refresh Page</button>
+        <button class="btn primary" type="button" onclick="setAutoReopen(true)">Auto Reopen ON</button>
+        <button class="btn warning" type="button" onclick="setAutoReopen(false)">Auto Reopen OFF</button>
+        <button class="btn warning" type="button" onclick="clearDeviceCache()">Clear Device Cache</button>
+        <button class="btn danger" type="button" onclick="clearDeviceData()">Clear Device Data</button>
+        <button class="btn warning" type="button" onclick="restartDeviceApp()">Restart Device App</button>
+      </div>
+    </header>
+
+    <div class="main-grid">
+      <div class="left-col">
+        <section class="card compact-card">
+          <div class="device-toolbar">
+            <div>
+              <h2>Select Device</h2>
+              <p class="section-help">Select all devices or choose only the TVs you want to update.</p>
+            </div>
+            <button class="btn primary" type="button" onclick="toggleDeviceDashboard()">Device Dashboard</button>
+          </div>
+          <div class="selection-actions">
+            <div id="deviceSelectionSummary" class="selection-summary">Scanning devices...</div>
+            <div class="selection-buttons">
+              <button class="btn primary" type="button" onclick="selectAllDevices(true)">Select All</button>
+              <button class="btn warning" type="button" onclick="selectAllDevices(false)">Clear All</button>
+            </div>
+          </div>
+          <div id="deviceChecklist" class="device-checklist">
+            <div class="device-checklist-empty">Scanning devices...</div>
+          </div>
+          <select id="deviceSelect" class="hidden-select" tabindex="-1" aria-hidden="true">
+            <option value="all">All Devices</option>
+          </select>
+        </section>
+
+        <section class="card compact-card">
+          <h2>Upload Media</h2>
+          <p class="section-help">Upload media by section. Existing section files will be replaced after successful upload.</p>
+          <p class="section-help">PDF files are converted into image pages before upload so devices can switch pages instantly.</p>
+          <div id="uploadSections"></div>
+          <div class="sub-card alerts-card">
+            <h3>Device Alerts</h3>
+            <p class="section-help">Offline, closed app, and runtime errors will appear here.</p>
+            <div id="deviceAlertsList" class="alerts-list">
+              <div class="alerts-empty">Loading device status...</div>
+            </div>
+          </div>
+
+          <div class="sub-card alerts-card">
+            <h3>App Update</h3>
+            <p class="section-help">Upload latest APK and push update command to selected device.</p>
+            <div class="update-box">
+              <input type="file" id="appUpdateFile" accept=".apk,application/vnd.android.package-archive" />
+              <button class="btn primary" type="button" onclick="uploadAndInstallAppUpdate()">Upload And Update App</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="middle-col">
+        <section class="card settings-card">
+          <h2>Player And Grid Settings</h2>
+          <div class="form-grid">
+            <label>Layout</label>
+            <select id="layout">
+              <option value="fullscreen">Fullscreen</option>
+              <option value="grid2">Grid (2 Split)</option>
+              <option value="grid3">Grid (3 Split)</option>
+            </select>
+            <label>Screen Orientation</label>
+            <select id="orientation">
+              <option value="horizontal">Horizontal (Landscape)</option>
+              <option value="reverse-horizontal">Reverse Horizontal</option>
+              <option value="vertical">Vertical (Portrait)</option>
+              <option value="reverse-vertical">Reverse Vertical</option>
+            </select>
+            <label>Animation</label>
+            <select id="animation">
+              <option value="slide">Slide</option>
+              <option value="fade">Fade</option>
+              <option value="zoom">Zoom</option>
+              <option value="flip">Flip</option>
+              <option value="none">None</option>
+            </select>
+          </div>
+
+          <div id="grid3LayoutSection" class="sub-card hidden">
+            <h3 id="gridLayoutTitle">Grid 3 Layout Options</h3>
+            <p class="section-help">Select the exact arrangement you want on screen.</p>
+            <div id="grid3LayoutOptions" class="layout-options"></div>
+          </div>
+
+          <div class="sub-card">
+            <h3>Section Controls</h3>
+            <div class="section-controls-row">
+              <div id="section1Wrapper" class="section-panel">
+                <label>Section 1 Direction</label>
+                <select id="dir1">
+                  <option value="left">Right to Left</option>
+                  <option value="right">Left to Right</option>
+                  <option value="top">Bottom to Top</option>
+                  <option value="bottom">Top to Bottom</option>
+                </select>
+                <label>Section 1 Duration (sec)</label>
+                <input type="number" id="duration1" min="1" value="7" />
+              </div>
+              <div id="section2Wrapper" class="section-panel">
+                <label>Section 2 Direction</label>
+                <select id="dir2">
+                  <option value="left">Right to Left</option>
+                  <option value="right">Left to Right</option>
+                  <option value="top">Bottom to Top</option>
+                  <option value="bottom">Top to Bottom</option>
+                </select>
+                <label>Section 2 Duration (sec)</label>
+                <input type="number" id="duration2" min="1" value="13" />
+              </div>
+              <div id="section3Wrapper" class="section-panel">
+                <label>Section 3 Direction</label>
+                <select id="dir3">
+                  <option value="left">Right to Left</option>
+                  <option value="right">Left to Right</option>
+                  <option value="top">Bottom to Top</option>
+                  <option value="bottom">Top to Bottom</option>
+                </select>
+                <label>Section 3 Duration (sec)</label>
+                <input type="number" id="duration3" min="1" value="19" />
+              </div>
+            </div>
+          </div>
+
+          <div class="sub-card">
+            <h3>Ticker Settings</h3>
+            <div class="ticker-controls-row">
+              <div class="section-panel">
+                <label>Ticker Text</label>
+                <input id="tickerText" type="text" />
+                <label>Ticker Position</label>
+                <select id="tickerPosition">
+                  <option value="bottom">Bottom</option>
+                  <option value="top">Top</option>
+                </select>
+              </div>
+              <div class="section-panel">
+                <label>Ticker Text Color</label>
+                <input type="color" id="tickerColor" />
+                <label>Ticker Background Color</label>
+                <input type="color" id="tickerBgColor" />
+              </div>
+              <div class="section-panel">
+                <label>Ticker Font Size</label>
+                <input type="range" id="tickerFontSize" min="12" max="60" />
+                <label>Ticker Speed</label>
+                <input type="range" id="tickerSpeed" min="0" max="12" value="6" />
+              </div>
+            </div>
+          </div>
+
+          <button class="btn primary full" type="button" onclick="saveConfig()">Save Settings</button>
+        </section>
+      </div>
+
+      <div class="right-col">
+        <section class="card compact-card">
+          <h2>Live Screen Preview</h2>
+          <div class="preview-tools">
+            <div id="screenPreview" class="screen-preview"></div>
+            <div class="ratio-panel">
+              <label for="gridRatio">Select Ratio</label>
+              <select id="gridRatio"></select>
+              <p class="section-help">Choose section size balance for the selected layout.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="card compact-card">
+          <h2>Scheduling</h2>
+          <p class="section-help">Set active days and time window for playback.</p>
+          <label class="switch-row">
+            <input type="checkbox" id="scheduleEnabled" />
+            <span>Enable Schedule</span>
+          </label>
+
+          <div id="scheduleFields" class="schedule-fields">
+            <div class="form-grid">
+              <label>Start Time</label>
+              <input type="time" id="scheduleStart" value="09:00" />
+              <label>End Time</label>
+              <input type="time" id="scheduleEnd" value="18:00" />
+            </div>
+            <label class="days-label">Active Days</label>
+            <div class="days-grid">
+              <label><input type="checkbox" class="schedule-day" value="0" /> Sun</label>
+              <label><input type="checkbox" class="schedule-day" value="1" /> Mon</label>
+              <label><input type="checkbox" class="schedule-day" value="2" /> Tue</label>
+              <label><input type="checkbox" class="schedule-day" value="3" /> Wed</label>
+              <label><input type="checkbox" class="schedule-day" value="4" /> Thu</label>
+              <label><input type="checkbox" class="schedule-day" value="5" /> Fri</label>
+              <label><input type="checkbox" class="schedule-day" value="6" /> Sat</label>
+            </div>
+
+            <div class="fallback-box">
+              <label>After End Time Show</label>
+              <select id="scheduleFallbackMode">
+                <option value="black">Black Screen</option>
+                <option value="message">Custom Message</option>
+                <option value="image">Custom Image URL</option>
+              </select>
+
+              <div id="scheduleFallbackMessageWrap">
+                <label>Fallback Message</label>
+                <input type="text" id="scheduleFallbackMessage" placeholder="Store closed. Back at 9:00 AM" />
+                <label>Message Text Color</label>
+                <input type="color" id="scheduleFallbackTextColor" value="#ffffff" />
+                <label>Message Background Color</label>
+                <input type="color" id="scheduleFallbackBgColor" value="#000000" />
+              </div>
+
+              <div id="scheduleFallbackImageWrap" class="hidden">
+                <label>Fallback Image URL</label>
+                <input type="text" id="scheduleFallbackImageUrl" placeholder="https://example.com/fallback.jpg" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card compact-card">
+          <h2>Cache</h2>
+          <p class="section-help">Video cache size on device (MB). Higher helps reduce buffering, lower saves storage.</p>
+          <div class="section-controls-row">
+            <div class="section-panel">
+              <label>Video Cache (MB)</label>
+              <input type="number" id="videoCacheMB" min="256" value="2048" />
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="uploadLoader" class="upload-loader hidden">
+      <div class="loader-circle"></div>
+      <p id="uploadStatus">Preparing upload...</p>
+      <div class="upload-progress">
+        <div id="uploadProgressFill" class="upload-progress-fill"></div>
+      </div>
+      <p id="uploadProgressText" class="upload-progress-text">0%</p>
+    </div>
+
+    <div id="deviceDashboardOverlay" class="dashboard-overlay hidden">
+      <div class="dashboard-panel">
+        <div class="dashboard-header">
+          <div>
+            <h2>Device Dashboard</h2>
+            <p class="section-help">Per-device health, storage, app version, and runtime status.</p>
+          </div>
+          <button class="btn warning" type="button" onclick="toggleDeviceDashboard(false)">Close</button>
+        </div>
+
+        <div class="health-summary-grid">
+          <div class="health-stat">
+            <div class="health-label">Online</div>
+            <div id="summaryOnline" class="health-value">0</div>
+          </div>
+          <div class="health-stat">
+            <div class="health-label">Offline</div>
+            <div id="summaryOffline" class="health-value">0</div>
+          </div>
+          <div class="health-stat">
+            <div class="health-label">Errors</div>
+            <div id="summaryErrors" class="health-value">0</div>
+          </div>
+          <div class="health-stat">
+            <div class="health-label">Free Storage</div>
+            <div id="summaryFreeStorage" class="health-value">-</div>
+          </div>
+        </div>
+
+        <div id="selectedDeviceDetails" class="selected-device-details">
+          Select a device to view detailed health.
+        </div>
+
+        <div class="dashboard-tools">
+          <input
+            type="text"
+            id="deviceDashboardSearch"
+            placeholder="Search device id, version, state..."
+            oninput="renderHealthSummary(window.__latestDeviceStatusList || [])"
+          />
+        </div>
+
+        <div id="deviceDashboardList" class="dashboard-device-list"></div>
+      </div>
+    </div>
+
+    <div id="noticeStack" class="notice-stack" aria-live="polite"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

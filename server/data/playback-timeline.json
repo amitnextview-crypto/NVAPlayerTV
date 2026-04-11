@@ -1,0 +1,16 @@
+{
+  "global": {
+    "sections": {
+      "1": {
+        "section": 1,
+        "cycleId": "1-1775817066386_exbt02",
+        "syncAt": 1775817069527,
+        "updatedAt": 1775817066521,
+        "fileCount": 1,
+        "mediaSignature": "file_example_MOV_1920_2_2MB.mp4",
+        "targetDevice": "all"
+      }
+    }
+  },
+  "devices": {}
+}
