@@ -20,6 +20,7 @@ import java.util.concurrent.Executors;
 public final class TvDiscoveryManager {
     private static final String SERVICE_TYPE = "_tv._tcp.";
     private static final long DISCOVERY_STALE_MS = 30000L;
+    private static final int[] FALLBACK_SCAN_PORTS = new int[]{8080, 8081, 9090, 10080};
 
     private final Context context;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -41,6 +42,7 @@ public final class TvDiscoveryManager {
         started = true;
         registerService();
         discoverServices();
+        probeLocalSubnet();
     }
 
     public synchronized void restartAdvertising() {
@@ -52,6 +54,32 @@ public final class TvDiscoveryManager {
         } catch (Exception ignored) {
         }
         registerService();
+        probeLocalSubnet();
+    }
+
+    private void probeLocalSubnet() {
+        executor.execute(() -> {
+            try {
+                String ip = EmbeddedCmsRuntime.getIpAddress(context);
+                String[] parts = String.valueOf(ip).trim().split("\\.");
+                if (parts.length != 4) return;
+                String prefix = parts[0] + "." + parts[1] + "." + parts[2] + ".";
+                String selfId = EmbeddedCmsRuntime.getDeviceId(context);
+                for (int host = 1; host < 255; host += 1) {
+                    String candidateIp = prefix + host;
+                    if (candidateIp.equals(ip)) continue;
+                    for (int port : FALLBACK_SCAN_PORTS) {
+                        JSONObject status = fetchStatusSync(candidateIp, port);
+                        if (status == null) continue;
+                        String deviceId = status.optString("deviceId", "");
+                        if (!deviceId.isEmpty() && deviceId.equals(selfId)) continue;
+                        discoveredByIp.put(candidateIp, status);
+                        break;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        });
     }
 
     private void registerService() {
@@ -145,36 +173,49 @@ public final class TvDiscoveryManager {
 
     private void fetchStatus(final String ip, final int port) {
         executor.execute(() -> {
-            HttpURLConnection connection = null;
             try {
-                int safePort = port > 0 ? port : EmbeddedCmsRuntime.DEFAULT_SERVER_PORT;
-                URL url = new URL("http://" + ip + ":" + safePort + "/status");
-                connection = (HttpURLConnection) url.openConnection();
-                connection.setConnectTimeout(2500);
-                connection.setReadTimeout(2500);
-                connection.setRequestProperty("Cache-Control", "no-cache");
-                connection.connect();
-                if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) return;
-                BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                StringBuilder builder = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    builder.append(line);
+                JSONObject status = fetchStatusSync(ip, port);
+                if (status != null) {
+                    discoveredByIp.put(ip, status);
+                } else {
+                    discoveredByIp.remove(ip);
                 }
-                JSONObject status = new JSONObject(builder.toString());
-                status.put("online", true);
-                status.put("status", "online");
-                status.put("lastSeen", System.currentTimeMillis());
-                if (status.optInt("port", 0) <= 0) {
-                    status.put("port", safePort);
-                }
-                discoveredByIp.put(ip, status);
             } catch (Exception ignored) {
                 discoveredByIp.remove(ip);
-            } finally {
-                if (connection != null) connection.disconnect();
             }
         });
+    }
+
+    private JSONObject fetchStatusSync(String ip, int port) {
+        HttpURLConnection connection = null;
+        try {
+            int safePort = port > 0 ? port : EmbeddedCmsRuntime.DEFAULT_SERVER_PORT;
+            URL url = new URL("http://" + ip + ":" + safePort + "/status");
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(1200);
+            connection.setReadTimeout(1200);
+            connection.setRequestProperty("Cache-Control", "no-cache");
+            connection.connect();
+            if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) return null;
+            BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+            StringBuilder builder = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                builder.append(line);
+            }
+            JSONObject status = new JSONObject(builder.toString());
+            status.put("online", true);
+            status.put("status", "online");
+            status.put("lastSeen", System.currentTimeMillis());
+            if (status.optInt("port", 0) <= 0) {
+                status.put("port", safePort);
+            }
+            return status;
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
     }
 
     private String buildServiceName() {

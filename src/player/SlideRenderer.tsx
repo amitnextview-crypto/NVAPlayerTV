@@ -142,6 +142,10 @@ function getMediaCacheIdentity(item: any) {
   ].join("|");
 }
 
+function shouldPreferStreamingForVideo(item: any, server: string) {
+  return !!server && isVideoFile(item);
+}
+
 function isCacheEligible(item: any) {
   return !!item && isMediaCacheEligible(item);
 }
@@ -300,7 +304,7 @@ export default function SlideRenderer({
   const lastRenderSnapshotRef = useRef<any | null>(null);
   const pendingAdvanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastVideoAdvanceIdentityRef = useRef<string>("");
-  const EMPTY_FETCH_CLEAR_THRESHOLD = 3;
+  const EMPTY_FETCH_CLEAR_THRESHOLD = 8;
   const MAX_SINGLE_VIDEO_RETRY = 3;
   const MAX_TRANSIENT_VIDEO_RETRY = 2;
   const MAX_BAD_MEDIA_RETRY = 3;
@@ -778,9 +782,9 @@ export default function SlideRenderer({
           return;
         }
 
-        // Avoid brief "No Media Found" flicker on transient empty responses.
+        // Avoid "No Media Uploaded" on transient empty responses while upload/apply is settling.
         emptyFetchCountRef.current += 1;
-        if (emptyFetchCountRef.current >= EMPTY_FETCH_CLEAR_THRESHOLD) {
+        if (!filesRef.current.length && emptyFetchCountRef.current >= EMPTY_FETCH_CLEAR_THRESHOLD) {
           setFiles([]);
           setIndex(0);
         }
@@ -809,6 +813,7 @@ export default function SlideRenderer({
     const isLargeVideo = isVideo && fileSize > LARGE_VIDEO_STREAM_THRESHOLD_BYTES;
     const localPlayableUri = normalizeMediaUri(String(file?.remoteUrl || ""));
     const hasLocalPlayableUri = /^file:\/\//i.test(localPlayableUri);
+    const preferStreaming = shouldPreferStreamingForVideo(file, server);
     const holdForCache =
       HOLD_LARGE_VIDEO_UNTIL_CACHED &&
       isLargeVideo &&
@@ -819,26 +824,34 @@ export default function SlideRenderer({
     let nextUri = "";
     if (holdForCache) {
       nextUri = "";
-    } else if (hasLocalPlayableUri && isListFullyCached) {
+    } else if (!preferStreaming && !isVideo && hasLocalPlayableUri && isListFullyCached) {
       nextUri = localPlayableUri;
-    } else if (isLargeVideo && server && file?.url) {
+    } else if (preferStreaming && server && file?.url) {
       nextUri = buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion);
     } else if (server && file?.url) {
       nextUri = buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion);
     } else if (file.remoteUrl) {
-      nextUri = isListFullyCached ? localPlayableUri : buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion);
+      nextUri = !preferStreaming && isListFullyCached
+        ? localPlayableUri
+        : (server && file?.url
+          ? buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion)
+          : localPlayableUri);
     }
 
     if (!nextUri) {
       if (file?.remoteUrl) {
-        nextUri = isListFullyCached ? normalizeMediaUri(String(file.remoteUrl || "")) : buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion);
+        nextUri = !preferStreaming && isListFullyCached
+          ? normalizeMediaUri(String(file.remoteUrl || ""))
+          : (server && file?.url
+            ? buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion)
+            : normalizeMediaUri(String(file.remoteUrl || "")));
       } else if (server && file?.url) {
         nextUri = buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion);
       }
     }
 
     // Two-phase switch: once full list is cached, prefer local and never fall back to remote.
-    if (isListFullyCached) {
+    if (isListFullyCached && !preferStreaming && !isVideo) {
       const localUri = normalizeMediaUri(String(file?.remoteUrl || ""));
       if (/^file:\/\//i.test(localUri)) {
         nextUri = localUri;
@@ -1119,8 +1132,8 @@ export default function SlideRenderer({
     const signature = buildListSignature(files);
     if (!signature || signature === listPrefetchKeyRef.current) return;
     listPrefetchKeyRef.current = signature;
-    // Staged cache: kick off background prefetch for the full playlist.
-    prefetchMediaItems(files);
+    // Keep full-playlist cache warm for lighter assets without overwhelming TV playback with many large videos.
+    prefetchMediaItems(files.filter((item) => !isVideoFile(item)));
   }, [files, sourceType]);
 
   useEffect(() => {
@@ -1631,10 +1644,9 @@ export default function SlideRenderer({
     currentFile && currentIsVideo
       ? lastGoodUriByIdentityRef.current[getMediaContentIdentity(currentFile)] ||
         lastGoodAnyUriRef.current ||
-        currentLocalPlayableUri ||
-        (server && currentFile?.url
+        ((server && currentFile?.url)
           ? buildRemoteMediaUri(server, currentFile.url, currentFile?.mtimeMs || mediaVersion)
-          : "")
+          : currentLocalPlayableUri || "")
       : "";
   const holdLargeVideo =
     sourceType === SOURCE_TYPES.multimedia &&
