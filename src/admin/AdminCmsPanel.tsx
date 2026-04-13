@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   BackHandler,
-  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -12,6 +11,8 @@ import { WebView } from "react-native-webview";
 import CmsAccessCard from "./CmsAccessCard";
 import {
   getCmsAccessInfo,
+  pickAndUploadMediaFiles,
+  setAutoReopenEnabled,
   startEmbeddedCmsServer,
 } from "../services/embeddedCmsService";
 
@@ -25,6 +26,8 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
   const slide = useRef(new Animated.Value(400)).current;
   const [cmsUrl, setCmsUrl] = useState("http://127.0.0.1:8080");
   const [currentView, setCurrentView] = useState<"access" | "cms">(initialView);
+  const [backFocused, setBackFocused] = useState(false);
+  const [webReloadKey, setWebReloadKey] = useState(0);
 
   useEffect(() => {
     startEmbeddedCmsServer();
@@ -37,6 +40,12 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
       setCurrentView(initialView);
     }
   }, [visible, initialView]);
+
+  useEffect(() => {
+    if (visible && currentView === "cms") {
+      setAutoReopenEnabled(false);
+    }
+  }, [currentView, visible]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -63,36 +72,89 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
 
   if (!visible) return null;
 
+  const nativeTvCmsUrl = `${cmsUrl}${cmsUrl.includes("?") ? "&" : "?"}tv=1`;
+
+  const handleNativeUpload = async (section: number, targets: string[] = [cmsUrl]) => {
+    try {
+      setAutoReopenEnabled(false);
+      await pickAndUploadMediaFiles(section, targets);
+      setWebReloadKey((value) => value + 1);
+    } catch (_e) {
+    }
+  };
+
   return (
     <Animated.View style={[styles.overlay, { transform: [{ translateX: slide }] }]}>
       {currentView === "cms" ? (
         <View style={styles.fullscreenWrap}>
           <View style={styles.header}>
-            <View>
+            <View style={styles.headerCopy}>
               <Text style={styles.title}>CMS</Text>
-              <Text style={styles.subtitle}>Use remote, mouse, or touch to control the panel.</Text>
+              <Text style={styles.subtitle}>TV mode uses native upload buttons inside each section.</Text>
             </View>
-            <Pressable
+            <TouchableOpacity
               onPress={() => {
                 if (initialView === "access") setCurrentView("access");
                 else onClose();
               }}
-              style={({ pressed }) => [
+              onFocus={() => setBackFocused(true)}
+              onBlur={() => setBackFocused(false)}
+              activeOpacity={0.8}
+              style={[
                 styles.backBtn,
-                pressed ? styles.backBtnActive : null,
+                backFocused ? styles.backBtnActive : null,
               ]}
               focusable
               accessible
               hasTVPreferredFocus
             >
               <Text style={styles.backBtnText}>Back</Text>
-            </Pressable>
+            </TouchableOpacity>
           </View>
           <View style={styles.webWrapFullscreen}>
             <WebView
-              source={{ uri: cmsUrl }}
+              key={`tv-cms-${webReloadKey}`}
+              source={{ uri: nativeTvCmsUrl }}
               style={styles.webview}
               originWhitelist={["*"]}
+              javaScriptEnabled
+              domStorageEnabled
+              allowFileAccess
+              allowUniversalAccessFromFileURLs
+              allowingReadAccessToURL={"file://"}
+              mixedContentMode="always"
+              setSupportMultipleWindows={false}
+              hideKeyboardAccessoryView
+              overScrollMode="never"
+              bounces={false}
+              showsVerticalScrollIndicator={false}
+              showsHorizontalScrollIndicator={false}
+              onMessage={(event) => {
+                const raw = String(event?.nativeEvent?.data || "").trim();
+                let parsed: any = null;
+                try {
+                  parsed = raw.startsWith("{") ? JSON.parse(raw) : null;
+                } catch (_e) {
+                  parsed = null;
+                }
+                const match = raw.match(/^TV_UPLOAD_SECTION:(\d+)$/);
+                if (parsed?.type === "TV_UPLOAD_SECTION") {
+                  const section = Number(parsed?.section || 1);
+                  const targets = Array.isArray(parsed?.targets)
+                    ? parsed.targets.map((value: any) => String(value || "")).filter(Boolean)
+                    : [cmsUrl];
+                  handleNativeUpload(section, targets);
+                  return;
+                }
+                if (match) {
+                  handleNativeUpload(Number(match[1] || 1), [cmsUrl]);
+                  return;
+                }
+                if (raw === "CONFIG_SAVED") {
+                  setAutoReopenEnabled(false);
+                  onClose();
+                }
+              }}
             />
           </View>
         </View>
@@ -131,10 +193,14 @@ const styles = StyleSheet.create({
     minHeight: 68,
     backgroundColor: "#17202c",
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   title: {
     color: "#fff",
@@ -144,7 +210,7 @@ const styles = StyleSheet.create({
   subtitle: {
     marginTop: 2,
     color: "rgba(212,225,238,0.7)",
-    fontSize: 12,
+    fontSize: 11,
   },
   close: {
     color: "#fff",
@@ -176,15 +242,15 @@ const styles = StyleSheet.create({
   },
   webview: {
     flex: 1,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#0f141c",
   },
   backBtn: {
-    minWidth: 88,
+    minWidth: 74,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#1d8fff",
     borderRadius: 10,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
     borderColor: "rgba(29, 143, 255, 0.4)",

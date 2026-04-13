@@ -43,6 +43,7 @@ let isDeviceDashboardOpen = false;
 const seenApkUpdateSuccessNotices = new Set();
 let currentDeviceMap = new Map();
 let selectedDeviceOrigins = new Set();
+const IS_TV_COMPACT_MODE = new URLSearchParams(window.location.search).get("tv") === "1";
 
 function getCurrentOrigin() {
   return window.location.origin;
@@ -2164,13 +2165,18 @@ function renderUploadSections() {
 
   const count = sectionCount(layout);
 
-  for (let i = 1; i <= count; i++) {
-    container.innerHTML += `
-      <div>
-        <h3>Section ${i}</h3>
-        <div class="source-controls">
-          <label>Source Type</label>
-          <select id="sourceType${i}" onchange="onSectionSourceChange(${i})">
+    for (let i = 1; i <= count; i++) {
+      container.innerHTML += `
+        <div class="upload-section-card">
+          <h3>Section ${i}</h3>
+          ${
+            IS_TV_COMPACT_MODE
+              ? `<p class="section-help tv-upload-target-note">Upload will apply to all selected TVs in the device list.</p>`
+              : ""
+          }
+          <div class="source-controls">
+            <label>Source Type</label>
+            <select id="sourceType${i}" onchange="onSectionSourceChange(${i})">
             <option value="multimedia">Multimedia (Image/Video)</option>
             <option value="web">Website URL</option>
             <option value="youtube">YouTube URL</option>
@@ -2185,20 +2191,49 @@ function renderUploadSections() {
             oninput="onSectionSourceUrlInput()"
           />
         </div>
-        <div id="uploadWrap${i}" class="upload-row">
-          <input
-            type="file"
-            id="media${i}"
-            multiple
-            accept=".mp4,.m4v,.mov,.mkv,.webm,.jpg,.jpeg,.png,.txt,.pdf,.ppt,.pptx,.pptm,.pps,.ppsx,.potx,video/mp4,video/quicktime,video/webm,image/jpeg,image/png,text/plain,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint.presentation.macroenabled.12,application/vnd.openxmlformats-officedocument.presentationml.slideshow,application/vnd.ms-powerpoint.slideshow.macroenabled.12,application/vnd.openxmlformats-officedocument.presentationml.template"
-          />
-          <button class="btn primary" type="button" onclick="uploadMedia(${i})">Upload Section ${i}</button>
-        </div>
+          ${
+            IS_TV_COMPACT_MODE
+              ? `
+                <div id="uploadWrap${i}" class="upload-row tv-native-upload-row">
+                  <button class="btn primary tv-upload-btn" type="button" onclick="triggerTvSectionUpload(${i})">Upload Section ${i}</button>
+                </div>
+              `
+            : `
+              <div id="uploadWrap${i}" class="upload-row">
+                <input
+                  type="file"
+                  id="media${i}"
+                  multiple
+                  accept=".mp4,.m4v,.mov,.mkv,.webm,.jpg,.jpeg,.png,.txt,.pdf,.ppt,.pptx,.pptm,.pps,.ppsx,.potx,video/mp4,video/quicktime,video/webm,image/jpeg,image/png,text/plain,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint.presentation.macroenabled.12,application/vnd.openxmlformats-officedocument.presentationml.slideshow,application/vnd.ms-powerpoint.slideshow.macroenabled.12,application/vnd.openxmlformats-officedocument.presentationml.template"
+                />
+                <button class="btn primary" type="button" onclick="uploadMedia(${i})">Upload Section ${i}</button>
+              </div>
+            `
+        }
       </div>
     `;
     updateSectionUploadMode(i);
   }
 }
+
+function triggerTvSectionUpload(section) {
+  if (!window.ReactNativeWebView) {
+    showNotice("warning", "TV Upload Unavailable", "Native TV upload is available only inside the TV app.", 5000);
+    return;
+  }
+  const targets = getSelectedOrigins();
+  if (!targets.length) {
+    showNotice("warning", "No Device Selected", "Select at least one device before uploading.", 5000);
+    return;
+  }
+  window.ReactNativeWebView.postMessage(JSON.stringify({
+    type: "TV_UPLOAD_SECTION",
+    section: Number(section || 1),
+    targets,
+  }));
+}
+
+window.triggerTvSectionUpload = triggerTvSectionUpload;
 
 function selectGrid3Layout(layoutId) {
   selectedGrid3Layout = layoutId;
@@ -2626,6 +2661,30 @@ window.toggleDeviceDashboard = toggleDeviceDashboard;
 window.selectDeviceFromDashboard = selectDeviceFromDashboard;
 
 document.addEventListener("DOMContentLoaded", async () => {
+  if (IS_TV_COMPACT_MODE) {
+    document.body.classList.add("tv-compact-mode");
+    const leftCol = document.querySelector(".left-col");
+    const rightCol = document.querySelector(".right-col");
+    const uploadWrap = document.getElementById("uploadSections");
+    if (uploadWrap) {
+      const hint = document.createElement("div");
+      hint.className = "tv-upload-hint";
+      hint.textContent = "Select devices below, then upload section-wise from these buttons. Save closes the TV CMS after settings are applied.";
+      uploadWrap.parentElement?.insertBefore(hint, uploadWrap);
+    }
+    const dashboardBtn = document.querySelector(".device-toolbar .btn");
+    if (dashboardBtn) {
+      dashboardBtn.classList.add("hidden");
+    }
+    if (rightCol) {
+      rightCol.classList.add("hidden");
+    }
+    const dashboardOverlay = document.getElementById("deviceDashboardOverlay");
+    if (dashboardOverlay) {
+      dashboardOverlay.classList.add("hidden");
+    }
+  }
+
   renderGrid3LayoutOptions();
   updateScheduleFallbackVisibility();
   updateUploadProgress(0, "Preparing upload...");

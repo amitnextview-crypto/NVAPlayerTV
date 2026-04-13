@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { TouchableOpacity, Text } from "react-native";
 
 type Props = {
@@ -14,24 +14,26 @@ export default function AdminButton({
   label,
   icon = "\u2699",
 }: Props) {
+  const compact = !label;
+  const [focused, setFocused] = useState(false);
   return (
     <TouchableOpacity
       onPress={onOpen}
+      activeOpacity={0.78}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      focusable
       style={{
         position: "absolute",
         bottom: 8,
         ...(side === "right" ? { right: 8 } : { left: 8 }),
-        minWidth: label ? 54 : 24,
-        paddingHorizontal: label ? 8 : 5,
-        paddingVertical: label ? 5 : 3,
-        backgroundColor: "rgba(10, 18, 26, 0.5)",
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: "rgba(120, 200, 255, 0.22)",
-        shadowColor: "#000",
-        shadowOpacity: 0.18,
-        shadowRadius: 4,
-        elevation: 3,
+        minWidth: compact ? 22 : 54,
+        minHeight: compact ? 22 : 28,
+        paddingHorizontal: compact ? 2 : 8,
+        paddingVertical: compact ? 5 : 5,
+        backgroundColor: "transparent",
+        borderRadius: 0,
+        borderWidth: 0,
         flexDirection: "row",
         alignItems: "center",
         gap: 4,
@@ -39,8 +41,8 @@ export default function AdminButton({
     >
       <Text
         style={{
-          fontSize: label ? 9 : 8,
-          color: "rgba(233, 246, 255, 0.92)",
+          fontSize: compact ? 10 : 9,
+          color: focused ? "#62c7ff" : "rgba(233, 246, 255, 0.92)",
           fontWeight: "800",
         }}
       >

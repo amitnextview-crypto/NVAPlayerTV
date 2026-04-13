@@ -857,6 +857,11 @@ input[type="range"] {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.upload-section-card {
+  display: grid;
+  gap: 8px;
+}
+
 #uploadSections h3 {
   margin: 0 0 6px;
 }
@@ -881,6 +886,11 @@ input[type="range"] {
   margin-top: 0 !important;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.tv-upload-target-note {
+  margin-top: -2px;
+  margin-bottom: 2px;
 }
 
 .source-controls {
@@ -1090,6 +1100,82 @@ textarea:focus {
 
 .notice-stack {
   display: none;
+}
+
+.tv-upload-hint {
+  margin-bottom: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(120, 200, 255, 0.22);
+  background: rgba(8, 16, 25, 0.72);
+  color: #d6ebfb;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+
+body.tv-compact-mode .alerts-card,
+body.tv-compact-mode .ratio-panel {
+  display: none !important;
+}
+
+body.tv-compact-mode .main-grid {
+  grid-template-columns: minmax(260px, 0.82fr) minmax(520px, 1.18fr);
+  gap: 10px;
+}
+
+body.tv-compact-mode .left-col,
+body.tv-compact-mode .middle-col {
+  overflow-y: auto;
+}
+
+body.tv-compact-mode .device-toolbar .btn,
+body.tv-compact-mode #deviceDashboardOverlay {
+  display: none !important;
+}
+
+body.tv-compact-mode .tv-native-upload-row {
+  display: grid !important;
+  grid-template-columns: 1fr;
+}
+
+body.tv-compact-mode .tv-upload-btn {
+  width: 100%;
+  min-height: 42px;
+  font-size: 13px;
+}
+
+body.tv-compact-mode .device-checklist {
+  max-height: 280px;
+}
+
+body.tv-compact-mode .selection-actions {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+body.tv-compact-mode .selection-buttons {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body.tv-compact-mode .selection-buttons .btn {
+  width: 100%;
+}
+
+body.tv-compact-mode #uploadSections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+body.tv-compact-mode #uploadSections > div {
+  margin-bottom: 0;
+  min-height: 170px;
+}
+
+body.tv-compact-mode .source-controls {
+  grid-template-columns: 82px 1fr;
 }
 
 .message-overlay {

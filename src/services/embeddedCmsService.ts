@@ -46,6 +46,13 @@ export function startEmbeddedCmsServer() {
   }
 }
 
+export function setAutoReopenEnabled(enabled: boolean) {
+  try {
+    DeviceIdModule?.setAutoReopenEnabled?.(Boolean(enabled));
+  } catch {
+  }
+}
+
 export function setDeviceName(value: string) {
   try {
     DeviceIdModule?.setDeviceName?.(String(value || ""));
@@ -58,4 +65,14 @@ export function setEmbeddedRuntimeInfo(payload: Record<string, any>) {
     DeviceIdModule?.setDeviceRuntimeInfo?.(JSON.stringify(payload || {}));
   } catch {
   }
+}
+
+export async function pickAndUploadMediaFiles(section: number, targetOrigins: string[] = []) {
+  if (!DeviceIdModule?.pickAndUploadMediaFiles) {
+    throw new Error("TV media picker is not available.");
+  }
+  return DeviceIdModule.pickAndUploadMediaFiles(
+    Number(section || 1),
+    JSON.stringify(Array.isArray(targetOrigins) ? targetOrigins : [])
+  );
 }

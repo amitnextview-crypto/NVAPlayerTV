@@ -1786,7 +1786,6 @@ export default function App() {
         <View style={styles.bgGlowTop} />
         <View style={styles.bgGlowBottom} />
         <AdminButton
-          label="Settings"
           side="left"
           icon={"\u2699"}
           onOpen={() => {
@@ -1795,9 +1794,8 @@ export default function App() {
           }}
         />
         <AdminButton
-          label="Admin"
           side="right"
-          icon={"A"}
+          icon={"\u25A6"}
           onOpen={() => {
             setAdminInitialView("cms");
             setShowAdmin(true);
@@ -1963,7 +1961,6 @@ export default function App() {
           />
         </PlayerErrorBoundary>
         <AdminButton
-          label="Settings"
           side="left"
           icon={"\u2699"}
           onOpen={() => {
@@ -1972,9 +1969,8 @@ export default function App() {
           }}
         />
         <AdminButton
-          label="Admin"
           side="right"
-          icon={"A"}
+          icon={"\u25A6"}
           onOpen={() => {
             setAdminInitialView("cms");
             setShowAdmin(true);
