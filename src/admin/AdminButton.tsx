@@ -16,6 +16,10 @@ export default function AdminButton({
 }: Props) {
   const compact = !label;
   const [focused, setFocused] = useState(false);
+  const isRight = side === "right";
+  const baseColor = isRight ? "#ffb347" : "#62d7ff";
+  const accentColor = isRight ? "#ff6b6b" : "#4af2c8";
+  const activeColor = focused ? accentColor : baseColor;
   return (
     <TouchableOpacity
       onPress={onOpen}
@@ -34,6 +38,7 @@ export default function AdminButton({
         backgroundColor: "transparent",
         borderRadius: 0,
         borderWidth: 0,
+        opacity: focused ? 1 : 0.96,
         flexDirection: "row",
         alignItems: "center",
         gap: 4,
@@ -41,9 +46,12 @@ export default function AdminButton({
     >
       <Text
         style={{
-          fontSize: compact ? 10 : 9,
-          color: focused ? "#62c7ff" : "rgba(233, 246, 255, 0.92)",
+          fontSize: compact ? 12 : 10,
+          color: activeColor,
           fontWeight: "800",
+          textShadowColor: focused ? accentColor : baseColor,
+          textShadowOffset: { width: 0, height: 0 },
+          textShadowRadius: focused ? 10 : 6,
         }}
       >
         {icon}
@@ -52,8 +60,11 @@ export default function AdminButton({
         <Text
           style={{
             fontSize: 9,
-            color: "rgba(233, 246, 255, 0.92)",
+            color: activeColor,
             fontWeight: "800",
+            textShadowColor: focused ? accentColor : baseColor,
+            textShadowOffset: { width: 0, height: 0 },
+            textShadowRadius: focused ? 8 : 4,
           }}
         >
           {label}

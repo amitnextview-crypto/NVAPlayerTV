@@ -29,7 +29,6 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
   const [cmsUrl, setCmsUrl] = useState("http://127.0.0.1:8080");
   const [currentView, setCurrentView] = useState<"access" | "cms">(initialView);
   const [backFocused, setBackFocused] = useState(false);
-  const [webReloadKey, setWebReloadKey] = useState(0);
 
   useEffect(() => {
     startEmbeddedCmsServer();
@@ -110,7 +109,6 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
         section,
         count: Number(result?.count || 0),
       });
-      setWebReloadKey((value) => value + 1);
     } catch (error: any) {
       postWebEvent("TV_UPLOAD_FAILED", {
         section,
@@ -150,7 +148,6 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
           <View style={styles.webWrapFullscreen}>
             <WebView
               ref={webRef}
-              key={`tv-cms-${webReloadKey}`}
               source={{ uri: nativeTvCmsUrl }}
               style={styles.webview}
               originWhitelist={["*"]}

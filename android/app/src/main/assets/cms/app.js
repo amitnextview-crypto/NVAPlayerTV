@@ -45,6 +45,12 @@ const seenApkUpdateSuccessNotices = new Set();
 let currentDeviceMap = new Map();
 let selectedDeviceOrigins = new Set();
 const IS_TV_COMPACT_MODE = new URLSearchParams(window.location.search).get("tv") === "1";
+const DEVICE_SCAN_PORTS = (() => {
+  const currentPort = Number(window.location.port || "8080") || 8080;
+  return Array.from(new Set([currentPort, 8080, 8081, 9090, 10080]));
+})();
+let subnetScanInFlight = null;
+let lastSubnetScanAt = 0;
 const tvPickedState = {
   1: { count: 0, ready: false },
   2: { count: 0, ready: false },
@@ -65,6 +71,111 @@ function normalizeOrigin(value) {
 
 function getDeviceOptionValue(device) {
   return normalizeOrigin(device?.publicUrl || device?.localUrl || device?.origin || "");
+}
+
+function rebuildHiddenDeviceSelectOptions() {
+  const select = document.getElementById("deviceSelect");
+  if (!select) return;
+  select.innerHTML = "";
+
+  const allOption = document.createElement("option");
+  allOption.value = "all";
+  allOption.textContent = "All Devices";
+  select.appendChild(allOption);
+
+  Array.from(currentDeviceMap.values()).forEach((device) => {
+    const value = getDeviceOptionValue(device);
+    if (!value) return;
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = device.name
+      ? `${device.name} (${device.deviceId || device.ip || value})`
+      : (device.deviceId || device.ip || value);
+    select.appendChild(opt);
+  });
+}
+
+function upsertDiscoveredDevices(devices = []) {
+  if (!Array.isArray(devices) || !devices.length) return;
+  for (const device of devices) {
+    const value = getDeviceOptionValue(device);
+    if (!value) continue;
+    const existing = currentDeviceMap.get(value) || {};
+    currentDeviceMap.set(value, {
+      ...existing,
+      ...device,
+      origin: value,
+    });
+  }
+}
+
+async function probeDeviceOrigin(origin) {
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return null;
+  try {
+    const res = await fetch(`${normalized}/status?ts=${Date.now()}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const status = await res.json();
+    return {
+      ...status,
+      online: status?.online !== false,
+      publicUrl: normalizeOrigin(status?.publicUrl || normalized),
+      localUrl: normalizeOrigin(status?.localUrl || ""),
+      origin: normalizeOrigin(status?.publicUrl || normalized),
+    };
+  } catch (_e) {
+    return null;
+  }
+}
+
+async function scanSubnetForDevices() {
+  const now = Date.now();
+  if (subnetScanInFlight) return subnetScanInFlight;
+  if (now - lastSubnetScanAt < 20000) return null;
+  lastSubnetScanAt = now;
+
+  subnetScanInFlight = (async () => {
+    try {
+      const selfStatus = await probeDeviceOrigin(getCurrentOrigin());
+      const ip = String(selfStatus?.ip || "").trim();
+      const parts = ip.split(".");
+      if (parts.length !== 4) return;
+
+      const selfOrigin = getCurrentOrigin();
+      const prefix = `${parts[0]}.${parts[1]}.${parts[2]}`;
+      const candidates = [];
+      for (let host = 1; host < 255; host += 1) {
+        for (const port of DEVICE_SCAN_PORTS) {
+          const candidate = `http://${prefix}.${host}:${port}`;
+          if (candidate === selfOrigin) continue;
+          candidates.push(candidate);
+        }
+      }
+
+      for (let i = 0; i < candidates.length; i += 18) {
+        const batch = candidates.slice(i, i + 18);
+        const results = await Promise.all(batch.map((origin) => probeDeviceOrigin(origin)));
+        const found = results.filter(Boolean);
+        if (found.length) {
+          upsertDiscoveredDevices(found);
+          const previousSelected = new Set(selectedDeviceOrigins);
+          const nextSelected = Array.from(previousSelected).filter((value) => currentDeviceMap.has(value));
+          if (!nextSelected.length) {
+            selectedDeviceOrigins = new Set(Array.from(currentDeviceMap.keys()));
+          }
+          rebuildHiddenDeviceSelectOptions();
+          syncHiddenDeviceSelect();
+          renderDeviceChecklist();
+        }
+      }
+    } finally {
+      subnetScanInFlight = null;
+    }
+  })();
+
+  return subnetScanInFlight;
 }
 
 function getSelectedDeviceValue() {
@@ -2354,6 +2465,12 @@ function handleTvNativeEvent(payload) {
   if (payload?.type === "TV_UPLOAD_COMPLETE") {
     tvPickedState[section] = { count: 0, ready: false };
     updateTvPickStatus(section);
+    const primaryOrigin = getPrimaryOrigin();
+    if (primaryOrigin) {
+      loadPreviewMediaSection(primaryOrigin, section)
+        .then(() => renderScreenPreview())
+        .catch(() => {});
+    }
     showNotice("success", "Upload Complete", `${Number(payload?.count || 0)} file(s) uploaded to Section ${section}.`, 4000);
     return;
   }
@@ -2376,15 +2493,8 @@ function selectGrid3Layout(layoutId) {
 }
 
 async function loadDevices() {
-  const select = document.getElementById("deviceSelect");
   const previousSelected = new Set(selectedDeviceOrigins);
-  select.innerHTML = "";
   currentDeviceMap = new Map();
-
-  const allOption = document.createElement("option");
-  allOption.value = "all";
-  allOption.textContent = "All Devices";
-  select.appendChild(allOption);
 
   let devices = [];
   try {
@@ -2406,21 +2516,8 @@ async function loadDevices() {
       online: true,
     });
   }
-
-  normalizedDevices.forEach((d) => {
-    const value = getDeviceOptionValue(d);
-    if (!value) return;
-    currentDeviceMap.set(value, {
-      ...d,
-      origin: value,
-    });
-    const opt = document.createElement("option");
-    opt.value = value;
-    opt.textContent = d.name
-      ? `${d.name} (${d.deviceId || d.ip || value})`
-      : (d.deviceId || d.ip || value);
-    select.appendChild(opt);
-  });
+  upsertDiscoveredDevices(normalizedDevices);
+  rebuildHiddenDeviceSelectOptions();
 
   const nextSelected = Array.from(previousSelected).filter((value) => currentDeviceMap.has(value));
   selectedDeviceOrigins = new Set(
@@ -2428,6 +2525,7 @@ async function loadDevices() {
   );
   syncHiddenDeviceSelect();
   renderDeviceChecklist();
+  void scanSubnetForDevices();
 }
 
 async function uploadMedia(section) {

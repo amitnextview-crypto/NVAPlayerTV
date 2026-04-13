@@ -1698,7 +1698,7 @@ export default function App() {
 
   useEffect(() => {
     // Soft throttle for non-priority sections to keep playback smooth.
-    setNonPriorityThrottleMs(600);
+    setNonPriorityThrottleMs(120);
   }, []);
 
   if (!bootReady) {

@@ -11,9 +11,9 @@ const LIST_CACHE_PATH = `${MEDIA_DIR}/list-cache.json`;
 const MEDIA_FETCH_TIMEOUT_MS = 2500;
 const MEDIA_FETCH_BACKOFF_BASE_MS = 1500;
 const MEDIA_FETCH_BACKOFF_MAX_MS = 30000;
-const DOWNLOAD_CONCURRENCY = 4;
+const DOWNLOAD_CONCURRENCY = 6;
 const LARGE_MEDIA_BYTES = 300 * 1024 * 1024;
-const LARGE_MEDIA_CONCURRENCY = 1;
+const LARGE_MEDIA_CONCURRENCY = 2;
 const LIST_REFRESH_MIN_INTERVAL_MS = 3000;
 const SMALL_FILE_AWAIT_BYTES = 5 * 1024 * 1024;
 const DOWNLOAD_MAX_RETRIES = 5;
@@ -22,7 +22,7 @@ const DOWNLOAD_CONNECTION_TIMEOUT_MS = 20000;
 const DOWNLOAD_READ_TIMEOUT_MS = 120000;
 const DEFAULT_MIN_FREE_BYTES = 500 * 1024 * 1024;
 const VIDEO_FILE_RE = /\.(mp4|m4v|mov|mkv|webm)(\?.*)?$/i;
-const VIDEO_DOWNLOAD_CONCURRENCY = 1;
+const VIDEO_DOWNLOAD_CONCURRENCY = 2;
 const CACHE_SUMMARY_TTL_MS = 3000;
 const LOW_STORAGE_HARD_LIMIT_BYTES = 1200 * 1024 * 1024;
 const LOW_STORAGE_SOFT_LIMIT_BYTES = 2200 * 1024 * 1024;
@@ -820,21 +820,33 @@ async function mapServerListToPlayable(
     });
 
   if (options.awaitDownloads) {
-    const orderedDownloads = [...priorityDownloads, ...pendingDownloads];
-    const orderedVideoDownloads = [...priorityVideoDownloads, ...pendingVideoDownloads];
-    const orderedLargeDownloads = [...priorityLargeDownloads, ...pendingLargeDownloads];
-    if (orderedDownloads.length) {
-      await runTasksWithConcurrency(orderedDownloads, DOWNLOAD_CONCURRENCY, {
+    if (priorityDownloads.length) {
+      await runTasksWithConcurrency(priorityDownloads, DOWNLOAD_CONCURRENCY, {
         ignoreOverride: true,
       });
     }
-    if (orderedVideoDownloads.length) {
-      await runTasksWithConcurrency(orderedVideoDownloads, VIDEO_DOWNLOAD_CONCURRENCY, {
+    if (priorityVideoDownloads.length) {
+      await runTasksWithConcurrency(priorityVideoDownloads, VIDEO_DOWNLOAD_CONCURRENCY, {
         ignoreOverride: true,
       });
     }
-    if (orderedLargeDownloads.length) {
-      await runTasksWithConcurrency(orderedLargeDownloads, LARGE_MEDIA_CONCURRENCY, {
+    if (priorityLargeDownloads.length) {
+      await runTasksWithConcurrency(priorityLargeDownloads, LARGE_MEDIA_CONCURRENCY, {
+        ignoreOverride: true,
+      });
+    }
+    if (pendingDownloads.length) {
+      await runTasksWithConcurrency(pendingDownloads, DOWNLOAD_CONCURRENCY, {
+        ignoreOverride: true,
+      });
+    }
+    if (pendingVideoDownloads.length) {
+      await runTasksWithConcurrency(pendingVideoDownloads, VIDEO_DOWNLOAD_CONCURRENCY, {
+        ignoreOverride: true,
+      });
+    }
+    if (pendingLargeDownloads.length) {
+      await runTasksWithConcurrency(pendingLargeDownloads, LARGE_MEDIA_CONCURRENCY, {
         ignoreOverride: true,
       });
     }
@@ -849,21 +861,33 @@ async function mapServerListToPlayable(
   }
 
   const backgroundSync = async () => {
-    const orderedDownloads = [...priorityDownloads, ...pendingDownloads];
-    const orderedVideoDownloads = [...priorityVideoDownloads, ...pendingVideoDownloads];
-    const orderedLargeDownloads = [...priorityLargeDownloads, ...pendingLargeDownloads];
-    if (orderedDownloads.length) {
-      await runTasksWithConcurrency(orderedDownloads, DOWNLOAD_CONCURRENCY, {
+    if (priorityDownloads.length) {
+      await runTasksWithConcurrency(priorityDownloads, DOWNLOAD_CONCURRENCY, {
+        ignoreOverride: true,
+      });
+    }
+    if (priorityVideoDownloads.length) {
+      await runTasksWithConcurrency(priorityVideoDownloads, VIDEO_DOWNLOAD_CONCURRENCY, {
+        ignoreOverride: true,
+      });
+    }
+    if (priorityLargeDownloads.length) {
+      await runTasksWithConcurrency(priorityLargeDownloads, LARGE_MEDIA_CONCURRENCY, {
+        ignoreOverride: true,
+      });
+    }
+    if (pendingDownloads.length) {
+      await runTasksWithConcurrency(pendingDownloads, DOWNLOAD_CONCURRENCY, {
         delayMs: nonPriorityThrottleMs,
       });
     }
-    if (orderedVideoDownloads.length) {
-      await runTasksWithConcurrency(orderedVideoDownloads, VIDEO_DOWNLOAD_CONCURRENCY, {
+    if (pendingVideoDownloads.length) {
+      await runTasksWithConcurrency(pendingVideoDownloads, VIDEO_DOWNLOAD_CONCURRENCY, {
         delayMs: nonPriorityThrottleMs,
       });
     }
-    if (orderedLargeDownloads.length) {
-      await runTasksWithConcurrency(orderedLargeDownloads, LARGE_MEDIA_CONCURRENCY, {
+    if (pendingLargeDownloads.length) {
+      await runTasksWithConcurrency(pendingLargeDownloads, LARGE_MEDIA_CONCURRENCY, {
         delayMs: nonPriorityThrottleMs,
       });
     }
