@@ -72,8 +72,8 @@ body {
 }
 
 .hero-logo {
-  width: 50px;
-  height: 50px;
+  width: 58px;
+  height: 58px;
   object-fit: contain;
   border-radius: 10px;
   border: 1px solid rgba(126, 201, 255, 0.35);
@@ -87,7 +87,7 @@ body {
 
 .hero h1 {
   margin: 2px 0;
-  font-size: 24px;
+  font-size: 30px;
 }
 
 .eyebrow {
@@ -107,7 +107,7 @@ body {
 .hero-sub {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .hero-actions {
@@ -117,18 +117,18 @@ body {
 
 h2 {
   margin: 0 0 6px;
-  font-size: 16px;
+  font-size: 19px;
 }
 
 h3 {
   margin: 0 0 6px;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .section-help {
   margin: 0 0 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .sub-card {
@@ -442,14 +442,14 @@ h3 {
 
 .form-grid {
   display: grid;
-  grid-template-columns: 160px 1fr;
-  gap: 8px 12px;
+  grid-template-columns: 176px 1fr;
+  gap: 10px 14px;
 }
 
 label {
   align-self: center;
   color: #d0e6f7;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -460,8 +460,8 @@ select {
   border-radius: 10px;
   background: #ecf6ff;
   color: #0d2435;
-  padding: 7px 9px;
-  font-size: 12px;
+  padding: 9px 11px;
+  font-size: 14px;
   transition: border-color 160ms, box-shadow 160ms;
 }
 
@@ -489,12 +489,12 @@ input[type="range"] {
 .btn {
   border: 0;
   border-radius: 10px;
-  padding: 7px 10px;
+  padding: 9px 12px;
   font-weight: 700;
   color: white;
   cursor: pointer;
   transition: transform 120ms ease, opacity 120ms ease;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .btn:hover {
@@ -517,8 +517,8 @@ input[type="range"] {
 .btn.full {
   margin-top: 10px;
   width: 100%;
-  padding: 9px;
-  font-size: 13px;
+  padding: 12px;
+  font-size: 15px;
 }
 
 .layout-options {
@@ -907,7 +907,7 @@ input[type="range"] {
 .main-grid {
   display: grid;
   grid-template-columns: minmax(220px, 0.88fr) minmax(420px, 1.22fr) minmax(280px, 0.9fr);
-  gap: 10px;
+  gap: 14px;
   align-items: stretch;
   height: calc(100vh - 88px);
   min-height: 0;
