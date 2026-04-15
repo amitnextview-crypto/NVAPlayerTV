@@ -21,6 +21,7 @@ import CmsAccessCard from "../admin/CmsAccessCard";
 import PlayerScreen from "../player/PlayerScreen";
 import { loadConfig } from "../services/configService";
 import {
+  clearEmbeddedCmsState,
   setEmbeddedRuntimeInfo,
   startEmbeddedCmsServer,
 } from "../services/embeddedCmsService";
@@ -133,6 +134,12 @@ async function getPathSizeSafe(targetPath: string): Promise<number> {
     return 0;
   }
 }
+
+const PRESERVED_ASYNC_KEYS = new Set([
+  "license_key_v1",
+  "license_device_id_v1",
+  "tvCmsActiveGroupId",
+]);
 
 export default function App() {
   const [bootReady, setBootReady] = useState(false);
@@ -355,6 +362,49 @@ export default function App() {
       ...current,
       [section]: timeline,
     }));
+  }
+
+  async function clearRuntimeDeepData() {
+    await resetMediaRuntimeState({ clearListCache: true });
+    await clearPersistedPlaybackState();
+    resetRuntimePlaybackSnapshots();
+    setSectionPlaybackTimeline({});
+    setUploadProcessingBySection({});
+    setUploadCountsBySection({});
+    setPlaylistSyncAt(0);
+    setContentResetVersion((prev) => prev + 1);
+    setSectionMediaVersion({ 1: 0, 2: 0, 3: 0 });
+
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const removeKeys = keys.filter((key) => !PRESERVED_ASYNC_KEYS.has(String(key || "")));
+      if (removeKeys.length) {
+        await AsyncStorage.multiRemove(removeKeys);
+      }
+    } catch {
+      // ignore AsyncStorage cleanup errors
+    }
+
+    await clearRuntimePlaybackData();
+    await clearRuntimeTransientCache();
+    try {
+      const manifestPath = `${RNFS.DocumentDirectoryPath}/media/manifest.json`;
+      const listPath = `${RNFS.DocumentDirectoryPath}/media/list-cache.json`;
+      if (await RNFS.exists(manifestPath)) {
+        await RNFS.unlink(manifestPath);
+      }
+      if (await RNFS.exists(listPath)) {
+        await RNFS.unlink(listPath);
+      }
+    } catch {
+      // ignore cleanup errors
+    }
+
+    try {
+      await clearEmbeddedCmsState();
+    } catch {
+      // ignore native embedded CMS cleanup errors
+    }
   }
 
   function bumpSectionMediaVersion(section?: number) {
@@ -609,6 +659,32 @@ export default function App() {
             const section = Number(payload?.section || 0);
             await refreshPlayerMediaImmediately(section);
             void finalizePlayerMediaRefresh(section);
+            return;
+          }
+          if (type === "device-command") {
+            const action = String(payload?.action || "").trim();
+            if (action === "force-sync" || action === "refresh-content" || action === "refresh") {
+              await refreshPlayerMediaImmediately();
+              void finalizePlayerMediaRefresh();
+              return;
+            }
+            if (action === "deep-clear-data") {
+              await clearRuntimeDeepData();
+              if (nativeDeviceModule?.restartApp) {
+                nativeDeviceModule.restartApp();
+              } else {
+                const { DevSettings } = require("react-native");
+                DevSettings.reload();
+              }
+              return;
+            }
+            if (nativeDeviceModule?.executeDeviceCommand) {
+              await nativeDeviceModule.executeDeviceCommand(
+                action,
+                JSON.stringify(payload || {})
+              );
+            }
+            return;
           }
         } catch {
         }
@@ -793,7 +869,7 @@ export default function App() {
       setConnectStatusText(status);
     };
 
-    const safeRestartApp = (reason: string) => {
+    function safeRestartApp(reason: string) {
       if (socket?.connected) {
         socket.emit("device-error", {
           deviceId: deviceIdRef.current,
@@ -819,7 +895,7 @@ export default function App() {
       } catch (e) {
         console.log("Restart failed", e);
       }
-    };
+    }
 
     const startDisconnectRecovery = (_reason: string) => {
       // Offline-first mode: do not auto-restart app on CMS disconnect.
@@ -1127,6 +1203,14 @@ export default function App() {
       } catch {
       }
 
+      let deviceName = "";
+      try {
+        if (nativeDeviceModule?.getDeviceName) {
+          deviceName = String(nativeDeviceModule.getDeviceName() || "");
+        }
+      } catch {
+      }
+
       const now = Date.now();
       const shouldRefreshStorage =
         !!options.forceStorageScan ||
@@ -1151,6 +1235,7 @@ export default function App() {
 
       return {
         appVersion,
+        deviceName,
         licensed,
         server: getServer(),
         currentPlaybackBySection: playbackBySectionRef.current,
@@ -1190,16 +1275,13 @@ export default function App() {
       console.log("Clear data command received");
 
       try {
-        const { DeviceIdModule: NativeDeviceModule } = NativeModules as any;
-        if (NativeDeviceModule?.setAutoReopenEnabled) {
-          NativeDeviceModule.setAutoReopenEnabled(false);
-        }
         resetRuntimePlaybackSnapshots();
-        await clearRuntimePlaybackData();
-        setSectionPlaybackTimeline({});
+        await clearRuntimeDeepData();
 
         console.log("Data cleared");
-        await emitDeviceHealthSnapshot("clear-data", {}, { forceStorageScan: true });
+        await emitDeviceHealthSnapshot("deep-clear-data", {
+          preservedIdentity: true,
+        }, { forceStorageScan: true });
         const { DevSettings } = require("react-native");
         DevSettings.reload();
       } catch (e) {
@@ -1218,6 +1300,60 @@ export default function App() {
         }
       } catch (e) {
         emitDeviceError("clear-cache", `Clear cache failed: ${String((e as any)?.message || e)}`);
+      }
+    };
+
+    const onDeepClearData = async () => {
+      try {
+        await clearRuntimeDeepData();
+        await emitDeviceHealthSnapshot("deep-clear-data", {
+          preservedIdentity: true,
+        }, { forceStorageScan: true });
+        safeRestartApp("deep clear data command");
+      } catch (e) {
+        emitDeviceError("deep-clear-data", `Deep clear failed: ${String((e as any)?.message || e)}`);
+      }
+    };
+
+    const onRenameDevice = async (payload: any) => {
+      try {
+        const nextName = String(payload?.deviceName || "").trim();
+        if (!nextName) return;
+        const nativeDeviceModule = (NativeModules as any)?.DeviceIdModule;
+        if (nativeDeviceModule?.setDeviceName) {
+          nativeDeviceModule.setDeviceName(nextName);
+          await emitDeviceHealthSnapshot("device-name-updated", {
+            deviceName: nextName,
+          });
+        }
+      } catch (e) {
+        emitDeviceError("rename-device", `Rename failed: ${String((e as any)?.message || e)}`);
+      }
+    };
+
+    const onGenericDeviceCommand = async (payload: any) => {
+      const action = String(payload?.action || "").trim();
+      try {
+        if (action === "force-sync" || action === "refresh-content" || action === "refresh") {
+          await refreshPlayerMediaImmediately();
+          await finalizePlayerMediaRefresh();
+          await emitDeviceHealthSnapshot(`command-${action}`, { action });
+          return;
+        }
+        if (action === "deep-clear-data") {
+          await onDeepClearData();
+          return;
+        }
+        const nativeDeviceModule = (NativeModules as any)?.DeviceIdModule;
+        if (nativeDeviceModule?.executeDeviceCommand) {
+          await nativeDeviceModule.executeDeviceCommand(
+            action,
+            JSON.stringify(payload || {})
+          );
+          await emitDeviceHealthSnapshot(`command-${action}`, { action, payload });
+        }
+      } catch (e) {
+        emitDeviceError("device-command", `${action || "unknown"} failed: ${String((e as any)?.message || e)}`);
       }
     };
 
@@ -1522,8 +1658,11 @@ export default function App() {
         });
 
         socket.on("clear-data", onClearData);
+        socket.on("deep-clear-data", onDeepClearData);
         socket.on("clear-cache", onClearCache);
         socket.on("restart-app", () => safeRestartApp("manual restart command"));
+        socket.on("rename-device", onRenameDevice);
+        socket.on("device-command", onGenericDeviceCommand);
         socket.on("install-app-update", async (payload) => {
           try {
             const nativeDeviceModule = (NativeModules as any)?.DeviceIdModule;
@@ -1657,8 +1796,11 @@ export default function App() {
         socket.off("media-updated");
         socket.off("config-updated");
         socket.off("clear-data", onClearData);
+        socket.off("deep-clear-data", onDeepClearData);
         socket.off("clear-cache", onClearCache);
         socket.off("restart-app");
+        socket.off("rename-device", onRenameDevice);
+        socket.off("device-command", onGenericDeviceCommand);
         socket.off("install-app-update");
         socket.off("set-auto-reopen");
         socket.off("section-upload-status");
@@ -2003,6 +2145,15 @@ export default function App() {
       {offlineNotice ? (
         <View style={styles.offlineToast}>
           <Text style={styles.offlineToastText}>{offlineNotice}</Text>
+          <Pressable
+            onPress={() => setOfflineNotice("")}
+            style={({ pressed }) => [
+              styles.offlineToastClose,
+              pressed ? styles.offlineToastClosePressed : null,
+            ]}
+          >
+            <Text style={styles.offlineToastCloseText}>x</Text>
+          </Pressable>
         </View>
       ) : null}
       {apkUpdateState.visible ? (
@@ -2244,20 +2395,42 @@ const styles = StyleSheet.create({
   },
   offlineToast: {
     position: "absolute",
-    left: 16,
-    right: 16,
     bottom: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    alignSelf: "center",
+    maxWidth: "78%",
+    minWidth: 180,
+    paddingVertical: 6,
+    paddingLeft: 12,
+    paddingRight: 34,
+    borderRadius: 10,
     backgroundColor: "rgba(10, 16, 22, 0.9)",
     borderWidth: 1,
     borderColor: "rgba(120, 180, 220, 0.4)",
   },
   offlineToastText: {
     color: "rgba(200, 225, 240, 0.95)",
-    fontSize: 12,
+    fontSize: 11,
+    lineHeight: 14,
     textAlign: "center",
+  },
+  offlineToastClose: {
+    position: "absolute",
+    right: 6,
+    top: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  offlineToastClosePressed: {
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+  },
+  offlineToastCloseText: {
+    color: "rgba(200, 225, 240, 0.95)",
+    fontSize: 13,
+    lineHeight: 13,
+    fontWeight: "700",
   },
   apkUpdateOverlay: {
     position: "absolute",

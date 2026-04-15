@@ -18,12 +18,13 @@
         </div>
       </div>
       <div class="hero-actions">
-        <button class="btn primary" type="button" onclick="window.location.reload()">Refresh Page</button>
-        <button class="btn primary" type="button" onclick="setAutoReopen(true)">Auto Reopen ON</button>
-        <button class="btn warning" type="button" onclick="setAutoReopen(false)">Auto Reopen OFF</button>
-        <button class="btn warning" type="button" onclick="clearDeviceCache()">Clear Device Cache</button>
-        <button class="btn danger" type="button" onclick="clearDeviceData()">Clear Device Data</button>
-        <button class="btn warning" type="button" onclick="restartDeviceApp()">Restart Device App</button>
+        <button class="btn primary compact-btn" type="button" onclick="window.location.reload()">Refresh</button>
+        <button class="btn primary compact-btn" type="button" onclick="window.enterpriseSendPresetAction?.('refresh-content')">Sync</button>
+        <button class="btn primary compact-btn" type="button" onclick="setAutoReopen(true)">Reopen ON</button>
+        <button class="btn warning compact-btn" type="button" onclick="setAutoReopen(false)">Reopen OFF</button>
+        <button class="btn warning compact-btn" type="button" onclick="clearDeviceCache()">Clear Cache</button>
+        <button class="btn danger compact-btn" type="button" onclick="clearDeviceData()">Clear Data</button>
+        <button class="btn warning compact-btn" type="button" onclick="restartDeviceApp()">Restart App</button>
       </div>
     </header>
 
@@ -35,7 +36,10 @@
               <h2>Select Device</h2>
               <p class="section-help">Select all devices or choose only the TVs you want to update.</p>
             </div>
-            <button class="btn primary" type="button" onclick="toggleDeviceDashboard()">Device Dashboard</button>
+            <div class="selection-buttons selection-buttons-inline">
+              <button id="deviceDashboardBtn" class="btn primary compact-btn" type="button" onclick="toggleDeviceDashboard()">Device Dashboard</button>
+              <button id="manageDevicesBtn" class="btn primary compact-btn" type="button" onclick="window.enterpriseOpenManageModal?.('groups')">Manage Devices</button>
+            </div>
           </div>
           <div class="selection-actions">
             <div id="deviceSelectionSummary" class="selection-summary">Scanning devices...</div>
@@ -50,15 +54,38 @@
           <select id="deviceSelect" class="hidden-select" tabindex="-1" aria-hidden="true">
             <option value="all">All Devices</option>
           </select>
+          <div id="compactGroupsCard" class="sub-card compact-groups-card">
+            <div class="device-toolbar">
+              <div>
+                <h3>Groups</h3>
+                <p class="section-help">Quickly switch the current target group from here.</p>
+              </div>
+              <button class="btn primary compact-btn" type="button" onclick="window.enterpriseOpenManageModal?.('groups')">Open Group Manager</button>
+            </div>
+            <div class="compact-groups-row">
+              <select id="compactGroupSelect">
+                <option value="">None</option>
+              </select>
+            </div>
+            <div id="compactGroupMeta" class="enterprise-meta">Saved groups will appear here.</div>
+          </div>
         </section>
 
         <section class="card compact-card">
           <h2>Upload Media</h2>
           <p class="section-help">Upload media by section. Existing section files will be replaced after successful upload.</p>
           <p class="section-help">PDF files are converted into image pages before upload so devices can switch pages instantly.</p>
+          <div id="uploadBehaviorCard" class="sub-card">
+            <h3>Upload Behavior</h3>
+            <p class="section-help">Browser uploads run in queue mode so large files can be sent to multiple TVs more safely.</p>
+            <div class="upload-behavior-grid">
+              <label for="uploadTimeoutMinutes">Upload Timeout (minutes)</label>
+              <input type="number" id="uploadTimeoutMinutes" min="10" max="120" step="1" value="15" />
+            </div>
+          </div>
           <div id="uploadSections"></div>
 
-          <div class="sub-card alerts-card">
+          <div id="appUpdateCard" class="sub-card alerts-card">
             <h3>App Update</h3>
             <p class="section-help">Upload latest APK and push update command to selected device.</p>
             <div class="update-box">
@@ -175,14 +202,14 @@
       </div>
 
       <div class="right-col">
-        <section class="card compact-card">
+        <section id="previewCard" class="card compact-card">
           <h2>Live Screen Preview</h2>
           <div class="preview-tools">
             <div id="screenPreview" class="screen-preview"></div>
           </div>
         </section>
 
-        <section class="card compact-card">
+        <section id="scheduleCard" class="card compact-card">
           <h2>Scheduling</h2>
           <p class="section-help">Set active days and time window for playback.</p>
           <label class="switch-row">
@@ -233,7 +260,7 @@
           </div>
         </section>
 
-        <section class="card compact-card">
+        <section id="cacheCard" class="card compact-card">
           <h2>Cache</h2>
           <p class="section-help">Video cache size on device (MB). Higher helps reduce buffering, lower saves storage.</p>
           <div class="section-controls-row">
@@ -253,6 +280,7 @@
         <div id="uploadProgressFill" class="upload-progress-fill"></div>
       </div>
       <p id="uploadProgressText" class="upload-progress-text">0%</p>
+      <div id="uploadDetailList" class="upload-detail-list"></div>
     </div>
 
     <div id="deviceDashboardOverlay" class="dashboard-overlay hidden">
@@ -302,8 +330,50 @@
     </div>
 
     <div id="noticeStack" class="notice-stack" aria-live="polite"></div>
+
+    <div id="enterpriseModal" class="dashboard-overlay hidden">
+      <div class="dashboard-panel enterprise-modal-panel">
+        <div class="dashboard-header">
+          <div>
+            <h2>Manage Devices</h2>
+            <p class="section-help">Manage device groups and device targeting here.</p>
+          </div>
+          <div class="enterprise-actions-row">
+            <button class="btn primary compact-btn" type="button" onclick="window.enterpriseRefreshAll?.()">Refresh</button>
+            <button class="btn warning compact-btn" type="button" onclick="window.enterpriseCloseManageModal?.()">Close</button>
+          </div>
+        </div>
+
+        <div class="enterprise-modal-grid">
+          <section class="sub-card enterprise-section" id="enterpriseGroupsSection">
+            <h3>Groups</h3>
+            <div class="enterprise-groups-layout">
+              <div class="enterprise-groups-list-wrap">
+                <div id="enterpriseGroupsList" class="enterprise-list compact"></div>
+              </div>
+              <div class="enterprise-form enterprise-group-editor">
+                <label>Group Name</label>
+                <input type="text" id="enterpriseGroupName" placeholder="Example: amit" />
+                <label>Selected Devices</label>
+                <div id="enterpriseDevicePicker" class="enterprise-picker"></div>
+                <div class="enterprise-meta">A group can include up to 5 devices.</div>
+                <label>Rename Selected Device</label>
+                <div class="input-action-group">
+                  <input type="text" id="enterpriseRenameValue" placeholder="Enter a new device name" />
+                  <button class="btn primary compact-btn" type="button" onclick="window.enterpriseRenameDevice?.()">Rename</button>
+                </div>
+                <div class="enterprise-actions-row">
+                  <button class="btn primary compact-btn" type="button" onclick="window.enterpriseSaveGroup?.()">Save Group</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>
+  <script src="enterprise.js"></script>
 </body>
 </html>

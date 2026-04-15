@@ -19,6 +19,7 @@
       </div>
       <div class="hero-actions">
         <button class="btn primary" onclick="window.location.reload()">Refresh Page</button>
+        <button class="btn primary" onclick="window.enterpriseOpenSecurity?.()">Security</button>
         <button class="btn primary" onclick="setAutoReopen(true)">Auto Reopen ON</button>
         <button class="btn warning" onclick="setAutoReopen(false)">Auto Reopen OFF</button>
         <button class="btn warning" onclick="clearDeviceCache()">Clear Device Cache</button>
@@ -302,8 +303,193 @@
     </div>
 
     <div id="noticeStack" class="notice-stack" aria-live="polite"></div>
+
+    <section class="card enterprise-card">
+      <div class="enterprise-header">
+        <div>
+          <p class="eyebrow">Enterprise Controls</p>
+          <h2>Groups, Bulk Actions, Upload Manager, Security, Backup</h2>
+          <p class="section-help">Manage 100+ TVs with reusable groups, controlled uploads, and persistent CMS settings.</p>
+        </div>
+        <div class="enterprise-actions">
+          <button class="btn primary" type="button" onclick="window.enterpriseRefreshAll?.()">Refresh Enterprise Data</button>
+          <button class="btn warning" type="button" onclick="window.enterpriseLogout?.()">Logout</button>
+        </div>
+      </div>
+
+      <div class="enterprise-grid">
+        <section class="sub-card enterprise-section" id="enterpriseSecurityCard">
+          <h3>CMS Security</h3>
+          <div id="authSessionMeta" class="enterprise-meta">Checking session...</div>
+          <div class="enterprise-form">
+            <label>Current Password</label>
+            <input type="password" id="cmsCurrentPassword" placeholder="Current PIN/password" />
+            <label>New Password</label>
+            <input type="password" id="cmsNewPassword" placeholder="New PIN/password" />
+            <button class="btn primary" type="button" onclick="window.enterpriseChangePassword?.()">Change Password</button>
+          </div>
+        </section>
+
+        <section class="sub-card enterprise-section">
+          <h3>Groups</h3>
+          <div class="enterprise-toolbar">
+            <input type="text" id="enterpriseGroupSearch" placeholder="Search groups" />
+            <button class="btn primary" type="button" onclick="window.enterpriseRefreshGroups?.()">Refresh</button>
+          </div>
+          <div class="enterprise-form">
+            <label>Group Name</label>
+            <input type="text" id="enterpriseGroupName" placeholder="Example: Lobby TVs" />
+            <label>Selected Devices</label>
+            <div id="enterpriseDevicePicker" class="enterprise-picker"></div>
+            <div class="enterprise-actions-row">
+              <button class="btn primary" type="button" onclick="window.enterpriseSaveGroup?.()">Save Group</button>
+              <button class="btn warning" type="button" onclick="window.enterpriseAutoCreateGroups?.()">Auto Create Groups Of 5</button>
+            </div>
+          </div>
+          <div id="enterpriseGroupsList" class="enterprise-list"></div>
+        </section>
+
+        <section class="sub-card enterprise-section">
+          <h3>Bulk Actions</h3>
+          <div class="enterprise-form">
+            <label>Action Targets</label>
+            <div id="enterpriseBulkTargets" class="enterprise-picker compact"></div>
+            <label>Action</label>
+            <select id="enterpriseBulkAction">
+              <option value="refresh-content">Refresh Content</option>
+              <option value="force-sync">Force Sync</option>
+              <option value="restart-app">Restart App</option>
+              <option value="clear-cache">Clear Cache</option>
+              <option value="deep-clear-data">Deep Clear Data</option>
+              <option value="orientation">Apply Orientation</option>
+              <option value="volume">Set Volume</option>
+              <option value="brightness">Set Brightness</option>
+              <option value="mute">Mute/Unmute</option>
+              <option value="apply-config">Apply Current CMS Config</option>
+            </select>
+            <label>Action Value</label>
+            <input type="text" id="enterpriseBulkValue" placeholder="Optional value like vertical, 60, true" />
+            <button class="btn primary" type="button" onclick="window.enterpriseRunBulkAction?.()">Run Bulk Action</button>
+          </div>
+        </section>
+
+        <section class="sub-card enterprise-section enterprise-section-wide">
+          <h3>Device Control Panel</h3>
+          <div class="enterprise-toolbar">
+            <input type="text" id="enterpriseDeviceSearch" placeholder="Search devices, IP, version, status" />
+            <button class="btn primary" type="button" onclick="window.enterpriseRefreshDevices?.()">Refresh Devices</button>
+          </div>
+          <div id="enterpriseSelectedDeviceMeta" class="enterprise-meta">Select one or more devices to control and rename.</div>
+          <div class="enterprise-control-grid">
+            <div class="enterprise-control-card">
+              <label>Rename Selected Device</label>
+              <input type="text" id="enterpriseRenameValue" placeholder="New device name" />
+              <button class="btn primary" type="button" onclick="window.enterpriseRenameDevice?.()">Rename Device</button>
+            </div>
+            <div class="enterprise-control-card">
+              <label>Orientation</label>
+              <select id="enterpriseOrientationValue">
+                <option value="horizontal">Horizontal</option>
+                <option value="reverse-horizontal">Reverse Horizontal</option>
+                <option value="vertical">Vertical</option>
+                <option value="reverse-vertical">Reverse Vertical</option>
+              </select>
+              <button class="btn primary" type="button" onclick="window.enterpriseSendPresetAction?.('orientation')">Apply Orientation</button>
+            </div>
+            <div class="enterprise-control-card">
+              <label>Volume</label>
+              <input type="number" id="enterpriseVolumeValue" min="0" max="100" value="60" />
+              <button class="btn primary" type="button" onclick="window.enterpriseSendPresetAction?.('volume')">Set Volume</button>
+            </div>
+            <div class="enterprise-control-card">
+              <label>Brightness</label>
+              <input type="number" id="enterpriseBrightnessValue" min="1" max="100" value="60" />
+              <button class="btn primary" type="button" onclick="window.enterpriseSendPresetAction?.('brightness')">Set Brightness</button>
+            </div>
+          </div>
+          <div class="enterprise-actions-row enterprise-actions-wrap">
+            <button class="btn primary" type="button" onclick="window.enterpriseSendPresetAction?.('refresh-content')">Refresh Content</button>
+            <button class="btn primary" type="button" onclick="window.enterpriseSendPresetAction?.('force-sync')">Force Sync</button>
+            <button class="btn primary" type="button" onclick="window.enterpriseSendPresetAction?.('mute-on')">Mute</button>
+            <button class="btn warning" type="button" onclick="window.enterpriseSendPresetAction?.('mute-off')">Unmute</button>
+            <button class="btn primary" type="button" onclick="window.enterpriseSendPresetAction?.('kiosk-on')">Kiosk ON</button>
+            <button class="btn warning" type="button" onclick="window.enterpriseSendPresetAction?.('kiosk-off')">Kiosk OFF</button>
+            <button class="btn primary" type="button" onclick="window.enterpriseSendPresetAction?.('auto-start-on')">Auto Start ON</button>
+            <button class="btn warning" type="button" onclick="window.enterpriseSendPresetAction?.('auto-start-off')">Auto Start OFF</button>
+            <button class="btn warning" type="button" onclick="window.enterpriseSendPresetAction?.('restart-app')">Restart App</button>
+            <button class="btn warning" type="button" onclick="window.enterpriseSendPresetAction?.('clear-cache')">Clear Cache</button>
+            <button class="btn danger" type="button" onclick="window.enterpriseSendPresetAction?.('deep-clear-data')">Deep Clear Data</button>
+            <button class="btn danger" type="button" onclick="window.enterpriseSendPresetAction?.('reboot')">Reboot Device</button>
+          </div>
+          <div id="enterpriseDeviceControlList" class="enterprise-device-grid"></div>
+        </section>
+
+        <section class="sub-card enterprise-section">
+          <h3>Enterprise Upload Manager</h3>
+          <div class="enterprise-form">
+            <label>Section</label>
+            <select id="enterpriseUploadSection">
+              <option value="1">Section 1</option>
+              <option value="2">Section 2</option>
+              <option value="3">Section 3</option>
+            </select>
+            <label>Target Devices</label>
+            <div id="enterpriseUploadTargets" class="enterprise-picker compact"></div>
+            <label>Files</label>
+            <input type="file" id="enterpriseUploadFiles" multiple />
+            <div class="enterprise-checkboxes">
+              <label><input type="checkbox" id="enterpriseSkipOffline" checked /> Skip offline devices</label>
+              <label><input type="checkbox" id="enterpriseSkipDuplicate" checked /> Skip duplicates if same media exists</label>
+            </div>
+            <button class="btn primary" type="button" onclick="window.enterpriseUploadMedia?.()">Start Enterprise Upload</button>
+          </div>
+          <div id="enterpriseUploadResult" class="enterprise-meta">No enterprise upload started yet.</div>
+        </section>
+
+        <section class="sub-card enterprise-section">
+          <h3>Upload Queue</h3>
+          <div class="enterprise-form inline">
+            <div>
+              <label>Max Concurrent Uploads</label>
+              <select id="enterpriseConcurrency">
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="5">5</option>
+              </select>
+            </div>
+            <div>
+              <label>Default Group Size</label>
+              <input type="number" id="enterpriseGroupSize" min="1" max="20" value="5" />
+            </div>
+          </div>
+          <div class="enterprise-actions-row">
+            <button class="btn primary" type="button" onclick="window.enterpriseSaveQueueSettings?.()">Save Queue Settings</button>
+            <button class="btn warning" type="button" onclick="window.enterprisePauseQueue?.()">Pause Queue</button>
+            <button class="btn primary" type="button" onclick="window.enterpriseResumeQueue?.()">Resume Queue</button>
+          </div>
+          <div id="enterpriseQueueSummary" class="enterprise-meta">Loading queue...</div>
+          <div id="enterpriseQueueList" class="enterprise-list compact"></div>
+        </section>
+
+        <section class="sub-card enterprise-section">
+          <h3>Backup / Restore</h3>
+          <div class="enterprise-actions-row">
+            <button class="btn primary" type="button" onclick="window.enterpriseExportBackup?.()">Export Groups + Settings</button>
+            <input type="file" id="enterpriseRestoreFile" accept=".json,application/json" />
+            <button class="btn warning" type="button" onclick="window.enterpriseRestoreBackup?.()">Restore Backup</button>
+          </div>
+          <div id="enterpriseBackupMeta" class="enterprise-meta">Backup tools ready.</div>
+        </section>
+
+        <section class="sub-card enterprise-section">
+          <h3>Logs</h3>
+          <div id="enterpriseLogs" class="enterprise-list compact"></div>
+        </section>
+      </div>
+    </section>
   </div>
 
   <script src="app.js"></script>
+  <script src="enterprise.js"></script>
 </body>
 </html>

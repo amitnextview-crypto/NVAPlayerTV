@@ -113,26 +113,30 @@ override fun onWindowFocusChanged(hasFocus: Boolean) {
     reopenHandler.removeCallbacks(reopenRunnable)
     reopenHandler.postDelayed(reopenRunnable, REOPEN_DELAY_MS)
 
-    // 2) OS alarm fallback for stricter TV builds (use activity PendingIntent to bypass BAL).
+    // 2) OS alarm fallback for stricter TV builds through ReopenReceiver.
     val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val pendingIntent = buildReopenPendingIntent()
-    val triggerAt = System.currentTimeMillis() + REOPEN_DELAY_MS
+    val triggerAt = android.os.SystemClock.elapsedRealtime() + REOPEN_DELAY_MS
 
     try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
         alarmManager.setExactAndAllowWhileIdle(
-          AlarmManager.RTC_WAKEUP,
+          AlarmManager.ELAPSED_REALTIME_WAKEUP,
           triggerAt,
           pendingIntent
         )
       } else {
-        alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        alarmManager.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pendingIntent)
       }
     } catch (_: Exception) {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        alarmManager.setAndAllowWhileIdle(
+          AlarmManager.ELAPSED_REALTIME_WAKEUP,
+          triggerAt,
+          pendingIntent
+        )
       } else {
-        alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pendingIntent)
       }
     }
   }
@@ -149,13 +153,11 @@ override fun onWindowFocusChanged(hasFocus: Boolean) {
   }
 
   private fun buildReopenPendingIntent(): PendingIntent {
-    val intent = Intent(this, MainActivity::class.java).apply {
-      action = Intent.ACTION_MAIN
-      addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
-      addCategory(Intent.CATEGORY_LAUNCHER)
-      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    val intent = Intent(this, ReopenReceiver::class.java).apply {
+      action = KioskKeepAliveService.ACTION_REOPEN_ALARM
+      `package` = packageName
     }
-    return PendingIntent.getActivity(
+    return PendingIntent.getBroadcast(
       this,
       REOPEN_REQ_CODE,
       intent,

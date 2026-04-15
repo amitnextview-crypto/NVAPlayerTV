@@ -17,9 +17,10 @@ export default function AdminButton({
   const compact = !label;
   const [focused, setFocused] = useState(false);
   const isRight = side === "right";
-  const baseColor = isRight ? "#ffb347" : "#62d7ff";
-  const accentColor = isRight ? "#ff6b6b" : "#4af2c8";
+  const baseColor = isRight ? "#f8b84e" : "#64d4ff";
+  const accentColor = isRight ? "#ff7e63" : "#59f0cb";
   const activeColor = focused ? accentColor : baseColor;
+  const shellSize = compact ? 24 : 29;
   return (
     <TouchableOpacity
       onPress={onOpen}
@@ -29,29 +30,27 @@ export default function AdminButton({
       focusable
       style={{
         position: "absolute",
-        bottom: 8,
-        ...(side === "right" ? { right: 8 } : { left: 8 }),
-        minWidth: compact ? 22 : 54,
-        minHeight: compact ? 22 : 28,
-        paddingHorizontal: compact ? 2 : 8,
-        paddingVertical: compact ? 5 : 5,
-        backgroundColor: "transparent",
-        borderRadius: 0,
-        borderWidth: 0,
+        bottom: 16,
+        ...(side === "right" ? { right: 16 } : { left: 16 }),
+        width: shellSize,
+        height: shellSize,
+        justifyContent: "center",
         opacity: focused ? 1 : 0.96,
-        flexDirection: "row",
         alignItems: "center",
-        gap: 4,
+        backgroundColor: isRight ? "rgba(62, 28, 12, 0.9)" : "rgba(7, 34, 46, 0.9)",
+        borderRadius: 999,
+        borderWidth: 1.5,
+        borderColor: focused ? accentColor : `${baseColor}cc`,
       }}
     >
       <Text
         style={{
-          fontSize: compact ? 12 : 10,
+          fontSize: compact ? 10 : 8,
           color: activeColor,
           fontWeight: "800",
           textShadowColor: focused ? accentColor : baseColor,
           textShadowOffset: { width: 0, height: 0 },
-          textShadowRadius: focused ? 10 : 6,
+          textShadowRadius: focused ? 14 : 8,
         }}
       >
         {icon}

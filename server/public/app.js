@@ -2480,6 +2480,11 @@ window.setAutoReopen = setAutoReopen;
 window.uploadAndInstallAppUpdate = uploadAndInstallAppUpdate;
 window.toggleDeviceDashboard = toggleDeviceDashboard;
 window.selectDeviceFromDashboard = selectDeviceFromDashboard;
+window.__cmsBuildConfig = buildConfigFromForm;
+window.__cmsLoadDevices = loadDevices;
+window.__cmsLoadConfig = loadConfig;
+window.__cmsShowNotice = showNotice;
+window.__cmsShowConfirmDialog = showConfirmDialog;
 
 document.addEventListener("DOMContentLoaded", () => {
   renderGrid3LayoutOptions();

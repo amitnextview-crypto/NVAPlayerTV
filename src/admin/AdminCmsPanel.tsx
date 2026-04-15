@@ -12,7 +12,6 @@ import CmsAccessCard from "./CmsAccessCard";
 import {
   getCmsAccessInfo,
   pickMediaFilesForSection,
-  setAutoReopenEnabled,
   startEmbeddedCmsServer,
   uploadPickedMediaFiles,
 } from "../services/embeddedCmsService";
@@ -41,12 +40,6 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
       setCurrentView(initialView);
     }
   }, [visible, initialView]);
-
-  useEffect(() => {
-    if (visible && currentView === "cms") {
-      setAutoReopenEnabled(false);
-    }
-  }, [currentView, visible]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -85,9 +78,23 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
     webRef.current?.injectJavaScript(script);
   };
 
+  const sanitizeNativeCmsError = (error: any) => {
+    const raw = String(error?.message || error || "").trim();
+    if (!raw) return "Action failed.";
+    if (/no_files_picked/i.test(raw)) return "Pick files first, then try the upload again.";
+    if (/upload target is empty/i.test(raw)) return "No upload target is available.";
+    if (/connection\s*reset|connectionreset|sun\.net/i.test(raw)) {
+      return "TV local upload connection was interrupted. The upload engine has been switched to direct local import. Please try again.";
+    }
+    if (/http 404|not found/i.test(raw)) return "Upload endpoint not found on the target device.";
+    if (/http 413|too large/i.test(raw)) return "The selected file is too large for the target device.";
+    if (/timed out|timeout/i.test(raw)) return "The upload timed out. Please try again.";
+    if (/java\.io\./i.test(raw) || /failed for http/i.test(raw)) return "The TV could not complete the upload. Please verify the target device is online and try again.";
+    return raw.length > 220 ? `${raw.slice(0, 220)}...` : raw;
+  };
+
   const handleNativePick = async (section: number) => {
     try {
-      setAutoReopenEnabled(false);
       const result: any = await pickMediaFilesForSection(section);
       postWebEvent("TV_PICK_COMPLETE", {
         section,
@@ -101,10 +108,9 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
     }
   };
 
-  const handleNativeUpload = async (section: number, targets: string[] = [cmsUrl]) => {
+  const handleNativeUpload = async (section: number, _targets: string[] = [cmsUrl]) => {
     try {
-      setAutoReopenEnabled(false);
-      const result: any = await uploadPickedMediaFiles(section, targets);
+      const result: any = await uploadPickedMediaFiles(section, [cmsUrl]);
       postWebEvent("TV_UPLOAD_COMPLETE", {
         section,
         count: Number(result?.count || 0),
@@ -112,7 +118,7 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
     } catch (error: any) {
       postWebEvent("TV_UPLOAD_FAILED", {
         section,
-        message: String(error?.message || "Upload failed."),
+        message: sanitizeNativeCmsError(error),
       });
     }
   };
@@ -179,10 +185,7 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
                 }
                 if (parsed?.type === "TV_UPLOAD_SECTION") {
                   const section = Number(parsed?.section || 1);
-                  const targets = Array.isArray(parsed?.targets)
-                    ? parsed.targets.map((value: any) => String(value || "")).filter(Boolean)
-                    : [cmsUrl];
-                  handleNativeUpload(section, targets);
+                  handleNativeUpload(section, [cmsUrl]);
                   return;
                 }
                 if (match) {
@@ -190,7 +193,6 @@ export default function AdminCmsPanel({ visible, onClose, initialView = "access"
                   return;
                 }
                 if (raw === "CONFIG_SAVED") {
-                  setAutoReopenEnabled(false);
                   onClose();
                 }
               }}

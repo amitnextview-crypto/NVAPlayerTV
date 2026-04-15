@@ -16,6 +16,9 @@ import android.os.Build;
 import android.os.StatFs;
 import android.app.Activity;
 import android.content.ClipData;
+import android.content.pm.ActivityInfo;
+import android.media.AudioManager;
+import android.view.WindowManager;
 
 import androidx.core.content.FileProvider;
 
@@ -24,9 +27,11 @@ import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -61,6 +66,7 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
     private Promise pendingMediaPickerPromise;
     private int pendingUploadSection = 1;
     private final Map<Integer, List<SelectedUploadFile>> stagedMediaBySection = new HashMap<>();
+    private final Object localUploadLock = new Object();
 
     DeviceIdModule(ReactApplicationContext context) {
         super(context);
@@ -390,6 +396,100 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
     }
 
     @ReactMethod
+    public void clearEmbeddedCmsState(Promise promise) {
+        try {
+            Context context = reactContext.getApplicationContext();
+            try {
+                android.content.SharedPreferences embeddedPrefs =
+                        context.getSharedPreferences(EmbeddedCmsRuntime.PREFS_NAME, Context.MODE_PRIVATE);
+                String preservedDeviceName = embeddedPrefs.getString(EmbeddedCmsRuntime.KEY_DEVICE_NAME, "");
+                String preservedHostname = embeddedPrefs.getString(EmbeddedCmsRuntime.KEY_HOSTNAME, "");
+                int preservedPreferredPort = embeddedPrefs.getInt(EmbeddedCmsRuntime.KEY_PREFERRED_PORT, 0);
+                String preservedEnterpriseState = embeddedPrefs.getString(EmbeddedCmsRuntime.KEY_ENTERPRISE_STATE, "");
+                String preservedCmsPassword = embeddedPrefs.getString(EmbeddedCmsRuntime.KEY_CMS_PASSWORD, "");
+                embeddedPrefs
+                        .edit()
+                        .clear()
+                        .putString(EmbeddedCmsRuntime.KEY_DEVICE_NAME, preservedDeviceName)
+                        .putString(EmbeddedCmsRuntime.KEY_HOSTNAME, preservedHostname)
+                        .putInt(EmbeddedCmsRuntime.KEY_PREFERRED_PORT, preservedPreferredPort)
+                        .putString(EmbeddedCmsRuntime.KEY_ENTERPRISE_STATE, preservedEnterpriseState)
+                        .putString(EmbeddedCmsRuntime.KEY_CMS_PASSWORD, preservedCmsPassword)
+                        .apply();
+            } catch (Exception ignored) {
+            }
+            try {
+                android.content.SharedPreferences kioskPrefs =
+                        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                boolean preservedAutoReopen = kioskPrefs.getBoolean(KEY_AUTO_REOPEN_ENABLED, true);
+                long preservedVideoCacheMaxBytes = kioskPrefs.getLong(KEY_VIDEO_CACHE_MAX_BYTES, 0L);
+                kioskPrefs
+                        .edit()
+                        .clear()
+                        .putBoolean(KEY_AUTO_REOPEN_ENABLED, preservedAutoReopen)
+                        .putLong(KEY_VIDEO_CACHE_MAX_BYTES, preservedVideoCacheMaxBytes)
+                        .apply();
+            } catch (Exception ignored) {
+            }
+            try {
+                File mediaRoot = new File(context.getFilesDir(), "cms-media");
+                deleteRecursively(mediaRoot);
+            } catch (Exception ignored) {
+            }
+            try {
+                File uploadedApk = new File(context.getFilesDir(), "NVA-SignagePlayerTV-update.apk");
+                deleteRecursively(uploadedApk);
+            } catch (Exception ignored) {
+            }
+            try {
+                NativeVideoPlayerView.clearVideoCache(context);
+            } catch (Exception ignored) {
+            }
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("clear_embedded_cms_failed", String.valueOf(e.getMessage()));
+        }
+    }
+
+    @ReactMethod
+    public void executeDeviceCommand(String action, String payloadJson, Promise promise) {
+        String safeAction = String.valueOf(action == null ? "" : action).trim();
+        try {
+            JSONObject payload = new JSONObject(payloadJson == null ? "{}" : payloadJson);
+            switch (safeAction) {
+                case "volume":
+                    promise.resolve(applyVolume(payload));
+                    return;
+                case "volume-step":
+                    promise.resolve(applyVolumeStep(payload));
+                    return;
+                case "mute":
+                    promise.resolve(applyMute(payload));
+                    return;
+                case "brightness":
+                    promise.resolve(applyBrightness(payload));
+                    return;
+                case "orientation":
+                    promise.resolve(applyOrientation(payload));
+                    return;
+                case "kiosk-toggle":
+                case "auto-start-on-boot":
+                    promise.resolve(applyAutoReopen(payload));
+                    return;
+                case "restart-app":
+                case "reboot":
+                    restartApp();
+                    promise.resolve(true);
+                    return;
+                default:
+                    promise.resolve(false);
+            }
+        } catch (Exception e) {
+            promise.reject("device_command_failed", String.valueOf(e.getMessage()));
+        }
+    }
+
+    @ReactMethod
     public void pickMediaFilesForSection(double sectionValue, Promise promise) {
         try {
             if (pendingMediaPickerPromise != null) {
@@ -602,12 +702,17 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
         final List<String> uploadTargets = new ArrayList<>(targetOrigins);
 
         new Thread(() -> {
-            ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, Math.min(4, uploadTargets.size())));
+            ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, Math.min(2, uploadTargets.size())));
             try {
+                final List<PreparedUploadFile> preparedFiles = prepareUploadFiles(uploadFiles);
                 List<Future<?>> futures = new ArrayList<>();
                 for (String origin : uploadTargets) {
                     futures.add(executor.submit(() -> {
-                        uploadFilesToOrigin(origin, section, uploadFiles);
+                        if (isLocalCmsOrigin(origin)) {
+                            importFilesToLocalSection(section, preparedFiles);
+                        } else {
+                            uploadFilesToOrigin(origin, section, preparedFiles);
+                        }
                         return null;
                     }));
                 }
@@ -622,7 +727,7 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
 
                 JSONObject payload = new JSONObject();
                 payload.put("section", section);
-                payload.put("count", uploadFiles.size());
+                payload.put("count", preparedFiles.size());
                 EmbeddedCmsRuntime.emitEvent("media-updated", payload);
 
                 stagedMediaBySection.remove(section);
@@ -630,13 +735,14 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
                 WritableMap out = Arguments.createMap();
                 out.putBoolean("success", true);
                 out.putInt("section", section);
-                out.putInt("count", uploadFiles.size());
+                out.putInt("count", preparedFiles.size());
                 out.putInt("targets", uploadTargets.size());
                 promise.resolve(out);
             } catch (Exception e) {
                 promise.reject("upload_failed", String.valueOf(e.getMessage()));
             } finally {
                 executor.shutdownNow();
+                cleanupPreparedFiles();
             }
         }).start();
     }
@@ -671,73 +777,386 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
         return targets;
     }
 
-    private void uploadFilesToOrigin(String origin, int section, List<SelectedUploadFile> files) throws Exception {
-        String safeOrigin = String.valueOf(origin == null ? "" : origin).trim().replaceAll("/+$", "");
-        if (safeOrigin.isEmpty()) {
-            throw new Exception("Upload target is empty.");
-        }
-        String boundary = "----SignageTvBoundary" + System.currentTimeMillis();
-        HttpURLConnection connection = null;
-        OutputStream rawOutput = null;
-        BufferedOutputStream output = null;
-        InputStream inputStream = null;
-        try {
-            URL url = new URL(safeOrigin + "/upload?section=" + section);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setConnectTimeout(20000);
-            connection.setReadTimeout(15 * 60 * 1000);
-            connection.setUseCaches(false);
-            connection.setDoOutput(true);
-            connection.setRequestMethod("POST");
-            connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-            connection.setChunkedStreamingMode(256 * 1024);
+    private final List<PreparedUploadFile> activePreparedFiles = new ArrayList<>();
 
-            rawOutput = connection.getOutputStream();
-            output = new BufferedOutputStream(rawOutput);
+    private synchronized void registerPreparedFile(PreparedUploadFile file) {
+        activePreparedFiles.add(file);
+    }
 
-            boolean containsPpt = false;
-            for (SelectedUploadFile file : files) {
-                if (isPptFile(file.fileName)) {
-                    containsPpt = true;
-                    break;
+    private synchronized void cleanupPreparedFiles() {
+        for (PreparedUploadFile file : activePreparedFiles) {
+            try {
+                if (file != null && file.tempFile != null && file.tempFile.exists()) {
+                    file.tempFile.delete();
                 }
+            } catch (Exception ignored) {
             }
-            if (containsPpt) {
-                writeTextPart(output, boundary, "containsPpt", "1");
-            }
+        }
+        activePreparedFiles.clear();
+    }
 
-            for (SelectedUploadFile file : files) {
-                writeFilePart(output, boundary, file);
+    private List<PreparedUploadFile> prepareUploadFiles(List<SelectedUploadFile> files) throws Exception {
+        List<PreparedUploadFile> prepared = new ArrayList<>();
+        for (SelectedUploadFile file : files) {
+            prepared.add(copySelectedFileToCache(file));
+        }
+        return prepared;
+    }
+
+    private PreparedUploadFile copySelectedFileToCache(SelectedUploadFile file) throws Exception {
+        File cacheDir = new File(reactContext.getCacheDir(), "prepared-tv-uploads");
+        if (!cacheDir.exists()) cacheDir.mkdirs();
+        File tempFile = new File(cacheDir, System.currentTimeMillis() + "_" + file.fileName);
+        InputStream input = null;
+        FileOutputStream output = null;
+        try {
+            input = reactContext.getContentResolver().openInputStream(file.uri);
+            if (input == null) {
+                throw new Exception("Unable to open selected file: " + file.fileName);
             }
-            writeClosingBoundary(output, boundary);
+            output = new FileOutputStream(tempFile, false);
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
             output.flush();
-
-            int status = connection.getResponseCode();
-            inputStream = status >= 200 && status < 300
-                    ? connection.getInputStream()
-                    : connection.getErrorStream();
-            String responseText = readStreamText(inputStream);
-            if (status < 200 || status >= 300) {
-                throw new Exception("Upload failed for " + safeOrigin + " (HTTP " + status + "): " + responseText);
-            }
         } finally {
             try {
-                if (inputStream != null) inputStream.close();
+                if (input != null) input.close();
             } catch (Exception ignored) {
             }
             try {
                 if (output != null) output.close();
             } catch (Exception ignored) {
             }
-            try {
-                if (rawOutput != null) rawOutput.close();
-            } catch (Exception ignored) {
+        }
+        PreparedUploadFile prepared = new PreparedUploadFile(tempFile, file.fileName, tempFile.length(), resolveMimeType(file.fileName));
+        registerPreparedFile(prepared);
+        return prepared;
+    }
+
+    private boolean isLocalCmsOrigin(String origin) {
+        String safeOrigin = String.valueOf(origin == null ? "" : origin).trim().replaceAll("/+$", "");
+        if (safeOrigin.isEmpty()) return true;
+        String localUrl = String.valueOf(EmbeddedCmsRuntime.getLocalUrl()).trim().replaceAll("/+$", "");
+        if (safeOrigin.equalsIgnoreCase(localUrl)) return true;
+        try {
+            URI uri = URI.create(safeOrigin);
+            String host = String.valueOf(uri.getHost() == null ? "" : uri.getHost()).trim().toLowerCase(Locale.US);
+            return "127.0.0.1".equals(host) || "localhost".equals(host);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private File getEmbeddedCmsMediaRoot() {
+        File root = new File(reactContext.getApplicationContext().getFilesDir(), "cms-media");
+        if (!root.exists()) root.mkdirs();
+        return root;
+    }
+
+    private File getEmbeddedCmsSectionDir(int section) {
+        return new File(getEmbeddedCmsMediaRoot(), "section" + Math.max(1, Math.min(3, section)));
+    }
+
+    private File getEmbeddedCmsSectionVersionsDir(int section) {
+        File sectionBase = getEmbeddedCmsSectionDir(section);
+        return new File(sectionBase.getAbsolutePath() + "__versions");
+    }
+
+    private File getEmbeddedCmsSectionActiveFile(int section) {
+        File sectionBase = getEmbeddedCmsSectionDir(section);
+        return new File(sectionBase.getAbsolutePath() + "__active.txt");
+    }
+
+    private String buildLocalSectionVersionName() {
+        return System.currentTimeMillis() + "_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 6);
+    }
+
+    private void cleanupOldLocalSectionVersions(File versionsDir, String keepVersion) {
+        if (versionsDir == null || !versionsDir.exists() || !versionsDir.isDirectory()) return;
+        File[] dirs = versionsDir.listFiles(File::isDirectory);
+        if (dirs == null || dirs.length <= 2) return;
+        java.util.Arrays.sort(dirs, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        int kept = 0;
+        for (File dir : dirs) {
+            if (dir == null) continue;
+            if (dir.getName().equals(keepVersion)) {
+                kept += 1;
+                continue;
             }
+            if (kept < 2) {
+                kept += 1;
+                continue;
+            }
+            deleteRecursively(dir);
+        }
+    }
+
+    private void activateLocalIncomingSection(File incomingDir, int section) throws Exception {
+        File versionsDir = getEmbeddedCmsSectionVersionsDir(section);
+        File activeFile = getEmbeddedCmsSectionActiveFile(section);
+        if (!versionsDir.exists() && !versionsDir.mkdirs()) {
+            throw new IOException("Unable to prepare section versions directory.");
+        }
+        String versionName = buildLocalSectionVersionName();
+        File versionDir = new File(versionsDir, versionName);
+        if (!incomingDir.renameTo(versionDir)) {
+            copyDirectory(incomingDir, versionDir);
+            deleteRecursively(incomingDir);
+        }
+        org.json.JSONArray files = new org.json.JSONArray();
+        File[] versionFiles = versionDir.listFiles();
+        if (versionFiles != null) {
+            java.util.Arrays.sort(versionFiles, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+            for (File file : versionFiles) {
+                if (file != null && file.isFile() && isAllowedMedia(file.getName())) {
+                    files.put(file.getName());
+                }
+            }
+        }
+        JSONObject activeState = new JSONObject();
+        activeState.put("activeVersion", versionName);
+        activeState.put("files", files);
+        activeState.put("updatedAt", System.currentTimeMillis());
+        FileOutputStream output = null;
+        try {
+            output = new FileOutputStream(activeFile, false);
+            output.write(activeState.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            output.flush();
+        } finally {
             try {
-                if (connection != null) connection.disconnect();
+                if (output != null) output.close();
             } catch (Exception ignored) {
             }
         }
+        cleanupOldLocalSectionVersions(versionsDir, versionName);
+    }
+
+    private void copyFile(File from, File to) throws IOException {
+        InputStream input = null;
+        FileOutputStream output = null;
+        try {
+            input = new FileInputStream(from);
+            output = new FileOutputStream(to, false);
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+            output.flush();
+        } finally {
+            try {
+                if (input != null) input.close();
+            } catch (Exception ignored) {
+            }
+            try {
+                if (output != null) output.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private void copyDirectory(File from, File to) throws IOException {
+        if (from == null || !from.exists()) return;
+        if (from.isDirectory()) {
+            if (!to.exists() && !to.mkdirs()) {
+                throw new IOException("Unable to create directory: " + to.getAbsolutePath());
+            }
+            File[] children = from.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    copyDirectory(child, new File(to, child.getName()));
+                }
+            }
+            return;
+        }
+        File parent = to.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IOException("Unable to create directory: " + parent.getAbsolutePath());
+        }
+        copyFile(from, to);
+    }
+
+    private void deleteRecursively(File file) {
+        if (file == null || !file.exists()) return;
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) deleteRecursively(child);
+            }
+        }
+        try {
+            if (!file.delete() && file.exists()) {
+                file.deleteOnExit();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void restoreBackupDirectory(File backupDir, File targetDir) throws IOException {
+        if (backupDir == null || !backupDir.exists()) return;
+        deleteRecursively(targetDir);
+        if (!backupDir.renameTo(targetDir)) {
+            copyDirectory(backupDir, targetDir);
+            deleteRecursively(backupDir);
+        }
+    }
+
+    private void replaceSectionDirSafely(File stagedDir, File targetDir) throws IOException {
+        File parent = targetDir.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IOException("Unable to prepare media directory.");
+        }
+        File backupDir = new File(parent, targetDir.getName() + "__backup");
+        deleteRecursively(backupDir);
+        boolean hadPrevious = targetDir.exists();
+
+        try {
+            if (hadPrevious && !targetDir.renameTo(backupDir)) {
+                copyDirectory(targetDir, backupDir);
+                deleteRecursively(targetDir);
+            }
+            if (!stagedDir.renameTo(targetDir)) {
+                if (!targetDir.exists() && !targetDir.mkdirs()) {
+                    throw new IOException("Unable to activate uploaded media.");
+                }
+                copyDirectory(stagedDir, targetDir);
+                deleteRecursively(stagedDir);
+            }
+            deleteRecursively(backupDir);
+        } catch (IOException error) {
+            deleteRecursively(targetDir);
+            if (hadPrevious) restoreBackupDirectory(backupDir, targetDir);
+            else deleteRecursively(backupDir);
+            throw error;
+        } catch (RuntimeException error) {
+            deleteRecursively(targetDir);
+            if (hadPrevious) {
+                try {
+                    restoreBackupDirectory(backupDir, targetDir);
+                } catch (IOException ignored) {
+                }
+            } else {
+                deleteRecursively(backupDir);
+            }
+            throw error;
+        }
+    }
+
+    private void importFilesToLocalSection(int section, List<PreparedUploadFile> files) throws Exception {
+        synchronized (localUploadLock) {
+            File incomingDir = new File(getEmbeddedCmsMediaRoot(), "incoming-" + section + "-" + System.currentTimeMillis());
+            if (!incomingDir.exists() && !incomingDir.mkdirs()) {
+                throw new IOException("Unable to prepare incoming media directory.");
+            }
+            try {
+                for (PreparedUploadFile file : files) {
+                    String safeName = sanitizeFileName(file.fileName);
+                    if (!isAllowedMedia(safeName)) continue;
+                    copyFile(file.tempFile, new File(incomingDir, safeName));
+                }
+                File[] stagedFiles = incomingDir.listFiles();
+                if (stagedFiles == null || stagedFiles.length == 0) {
+                    throw new IOException("No valid files selected for local import.");
+                }
+                activateLocalIncomingSection(incomingDir, section);
+            } catch (Exception error) {
+                deleteRecursively(incomingDir);
+                throw error;
+            }
+        }
+    }
+
+    private void uploadFilesToOrigin(String origin, int section, List<PreparedUploadFile> files) throws Exception {
+        String safeOrigin = String.valueOf(origin == null ? "" : origin).trim().replaceAll("/+$", "");
+        if (safeOrigin.isEmpty()) {
+            throw new Exception("Upload target is empty.");
+        }
+        Exception lastError = null;
+        for (int attempt = 0; attempt < 3; attempt += 1) {
+            String boundary = "----SignageTvBoundary" + System.currentTimeMillis() + "_" + attempt;
+            HttpURLConnection connection = null;
+            OutputStream rawOutput = null;
+            BufferedOutputStream output = null;
+            InputStream inputStream = null;
+            try {
+                URL url = new URL(safeOrigin + "/upload?section=" + section);
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setConnectTimeout(20000);
+                connection.setReadTimeout(15 * 60 * 1000);
+                connection.setUseCaches(false);
+                connection.setDoOutput(true);
+                connection.setRequestMethod("POST");
+                connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+                long contentLength = computeMultipartLength(boundary, files);
+                if (contentLength > 0 && contentLength < Integer.MAX_VALUE) {
+                    connection.setFixedLengthStreamingMode((int) contentLength);
+                } else if (contentLength > 0) {
+                    connection.setFixedLengthStreamingMode(contentLength);
+                } else {
+                    connection.setChunkedStreamingMode(256 * 1024);
+                }
+
+                rawOutput = connection.getOutputStream();
+                output = new BufferedOutputStream(rawOutput);
+
+                boolean containsPpt = false;
+                for (PreparedUploadFile file : files) {
+                    if (isPptFile(file.fileName)) {
+                        containsPpt = true;
+                        break;
+                    }
+                }
+                if (containsPpt) {
+                    writeTextPart(output, boundary, "containsPpt", "1");
+                }
+
+                for (PreparedUploadFile file : files) {
+                    writePreparedFilePart(output, boundary, file);
+                }
+                writeClosingBoundary(output, boundary);
+                output.flush();
+
+                int status = connection.getResponseCode();
+                inputStream = status >= 200 && status < 300
+                        ? connection.getInputStream()
+                        : connection.getErrorStream();
+                String responseText = readStreamText(inputStream);
+                if (status < 200 || status >= 300) {
+                    throw new Exception("Upload failed for " + safeOrigin + " (HTTP " + status + "): " + responseText);
+                }
+                return;
+            } catch (Exception error) {
+                lastError = error;
+                if (attempt < 2) {
+                    try {
+                        Thread.sleep(1400L * (attempt + 1));
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            } finally {
+                try {
+                    if (inputStream != null) inputStream.close();
+                } catch (Exception ignored) {
+                }
+                try {
+                    if (output != null) output.close();
+                } catch (Exception ignored) {
+                }
+                try {
+                    if (rawOutput != null) rawOutput.close();
+                } catch (Exception ignored) {
+                }
+                try {
+                    if (connection != null) connection.disconnect();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        throw lastError != null ? lastError : new Exception("Upload failed.");
     }
 
     private void writeTextPart(OutputStream output, String boundary, String name, String value) throws Exception {
@@ -747,14 +1166,48 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
         output.write("\r\n".getBytes("UTF-8"));
     }
 
-    private void writeFilePart(OutputStream output, String boundary, SelectedUploadFile file) throws Exception {
+    private long computeMultipartLength(String boundary, List<PreparedUploadFile> files) {
+        long total = 0L;
+        boolean containsPpt = false;
+        for (PreparedUploadFile file : files) {
+            if (isPptFile(file.fileName)) {
+                containsPpt = true;
+                break;
+            }
+        }
+        if (containsPpt) {
+            total += estimateUtf8Length("--" + boundary + "\r\n");
+            total += estimateUtf8Length("Content-Disposition: form-data; name=\"containsPpt\"\r\n\r\n");
+            total += estimateUtf8Length("1");
+            total += estimateUtf8Length("\r\n");
+        }
+        for (PreparedUploadFile file : files) {
+            total += estimateUtf8Length("--" + boundary + "\r\n");
+            total += estimateUtf8Length("Content-Disposition: form-data; name=\"files\"; filename=\"" + file.fileName + "\"\r\n");
+            total += estimateUtf8Length("Content-Type: " + file.mimeType + "\r\n\r\n");
+            total += Math.max(0L, file.size);
+            total += estimateUtf8Length("\r\n");
+        }
+        total += estimateUtf8Length("--" + boundary + "--\r\n");
+        return total;
+    }
+
+    private long estimateUtf8Length(String value) {
+        try {
+            return value.getBytes("UTF-8").length;
+        } catch (Exception ignored) {
+            return value.length();
+        }
+    }
+
+    private void writePreparedFilePart(OutputStream output, String boundary, PreparedUploadFile file) throws Exception {
         output.write(("--" + boundary + "\r\n").getBytes("UTF-8"));
         output.write(("Content-Disposition: form-data; name=\"files\"; filename=\"" + file.fileName + "\"\r\n").getBytes("UTF-8"));
-        output.write(("Content-Type: " + resolveMimeType(file.fileName) + "\r\n\r\n").getBytes("UTF-8"));
+        output.write(("Content-Type: " + file.mimeType + "\r\n\r\n").getBytes("UTF-8"));
 
         InputStream input = null;
         try {
-            input = reactContext.getContentResolver().openInputStream(file.uri);
+            input = new FileInputStream(file.tempFile);
             if (input == null) {
                 throw new Exception("Unable to read selected file: " + file.fileName);
             }
@@ -827,6 +1280,20 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
         }
     }
 
+    private static class PreparedUploadFile {
+        final File tempFile;
+        final String fileName;
+        final long size;
+        final String mimeType;
+
+        PreparedUploadFile(File tempFile, String fileName, long size, String mimeType) {
+            this.tempFile = tempFile;
+            this.fileName = fileName;
+            this.size = size;
+            this.mimeType = mimeType;
+        }
+    }
+
     private String resolveDisplayName(Uri uri) {
         try {
             String last = String.valueOf(uri.getLastPathSegment() == null ? "" : uri.getLastPathSegment()).trim();
@@ -856,21 +1323,99 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
                 || lower.endsWith(".pps") || lower.endsWith(".ppsx") || lower.endsWith(".potx");
     }
 
-    private void deleteRecursively(File file) {
-        if (file == null || !file.exists()) return;
-        if (file.isDirectory()) {
-            File[] children = file.listFiles();
-            if (children != null) {
-                for (File child : children) {
-                    deleteRecursively(child);
-                }
-            }
-        }
+    private boolean applyVolume(JSONObject payload) {
         try {
-            if (!file.delete() && file.exists()) {
-                file.deleteOnExit();
-            }
+            AudioManager audioManager = (AudioManager) reactContext.getSystemService(Context.AUDIO_SERVICE);
+            if (audioManager == null) return false;
+            int max = Math.max(1, audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+            int percent = Math.max(0, Math.min(100, payload.optInt("volume", payload.optInt("value", 0))));
+            int target = Math.max(0, Math.min(max, Math.round((percent / 100f) * max)));
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0);
+            return true;
         } catch (Exception ignored) {
+            return false;
         }
     }
+
+    private boolean applyMute(JSONObject payload) {
+        try {
+            AudioManager audioManager = (AudioManager) reactContext.getSystemService(Context.AUDIO_SERVICE);
+            if (audioManager == null) return false;
+            boolean enabled = payload.optBoolean("enabled", payload.optBoolean("value", false));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioManager.adjustStreamVolume(
+                        AudioManager.STREAM_MUSIC,
+                        enabled ? AudioManager.ADJUST_MUTE : AudioManager.ADJUST_UNMUTE,
+                        0
+                );
+            } else {
+                audioManager.setStreamMute(AudioManager.STREAM_MUSIC, enabled);
+            }
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean applyVolumeStep(JSONObject payload) {
+        try {
+            AudioManager audioManager = (AudioManager) reactContext.getSystemService(Context.AUDIO_SERVICE);
+            if (audioManager == null) return false;
+            int delta = payload.optInt("delta", payload.optInt("step", 0));
+            if (delta == 0) return false;
+            audioManager.adjustStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    delta > 0 ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER,
+                    0
+            );
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean applyBrightness(JSONObject payload) {
+        try {
+            Activity activity = getCurrentActivity();
+            if (activity == null) return false;
+            int percent = Math.max(1, Math.min(100, payload.optInt("brightness", payload.optInt("value", 50))));
+            final float value = Math.max(0.02f, Math.min(1f, percent / 100f));
+            activity.runOnUiThread(() -> {
+                WindowManager.LayoutParams params = activity.getWindow().getAttributes();
+                params.screenBrightness = value;
+                activity.getWindow().setAttributes(params);
+            });
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean applyOrientation(JSONObject payload) {
+        try {
+            Activity activity = getCurrentActivity();
+            if (activity == null) return false;
+            String orientation = String.valueOf(payload.optString("orientation", payload.optString("value", "horizontal")));
+            int requested = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+            if ("vertical".equalsIgnoreCase(orientation)) {
+                requested = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+            } else if ("reverse-vertical".equalsIgnoreCase(orientation)) {
+                requested = ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT;
+            } else if ("reverse-horizontal".equalsIgnoreCase(orientation)) {
+                requested = ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE;
+            }
+            final int finalRequested = requested;
+            activity.runOnUiThread(() -> activity.setRequestedOrientation(finalRequested));
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean applyAutoReopen(JSONObject payload) {
+        boolean enabled = payload.optBoolean("enabled", payload.optBoolean("value", true));
+        setAutoReopenEnabled(enabled);
+        return true;
+    }
+
 }

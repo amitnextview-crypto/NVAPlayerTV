@@ -17,6 +17,7 @@ import android.os.Looper
 class KioskKeepAliveService : Service() {
 
   companion object {
+    const val ACTION_REOPEN_ALARM = "com.signageplayertv.action.REOPEN_ALARM"
     private const val CHANNEL_ID = "signage_keepalive_channel"
     private const val CHANNEL_NAME = "Signage Keep Alive"
     private const val NOTIF_ID = 4401
@@ -115,16 +116,16 @@ class KioskKeepAliveService : Service() {
     val pendingIntent = buildReopenPendingIntent()
 
     val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-    val triggerAt = System.currentTimeMillis() + WATCHDOG_INTERVAL_MS
+    val triggerAt = android.os.SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL_MS
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
       alarmManager.setExactAndAllowWhileIdle(
-        AlarmManager.RTC_WAKEUP,
+        AlarmManager.ELAPSED_REALTIME_WAKEUP,
         triggerAt,
         pendingIntent
       )
     } else {
-      alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+      alarmManager.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pendingIntent)
     }
   }
 
@@ -140,13 +141,11 @@ class KioskKeepAliveService : Service() {
   }
 
   private fun buildReopenPendingIntent(): PendingIntent {
-    val intent = Intent(this, MainActivity::class.java).apply {
-      action = Intent.ACTION_MAIN
-      addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
-      addCategory(Intent.CATEGORY_LAUNCHER)
-      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    val intent = Intent(this, ReopenReceiver::class.java).apply {
+      action = ACTION_REOPEN_ALARM
+      `package` = packageName
     }
-    return PendingIntent.getActivity(
+    return PendingIntent.getBroadcast(
       this,
       REOPEN_REQ_CODE,
       intent,

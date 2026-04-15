@@ -319,6 +319,10 @@ function localPathFor(remoteUrl: string, section: number, name: string): string 
   return `${MEDIA_ROOT}/${fileName}`;
 }
 
+function tempDownloadPathFor(targetPath: string): string {
+  return `${targetPath}.part`;
+}
+
 function shouldCacheItem(item: MediaItem): boolean {
   const url = String(item?.url || "").trim();
   if (!url) return false;
@@ -450,6 +454,7 @@ async function downloadIfNeeded(
   }
 
   const targetPath = localPathFor(remoteUrl, section, sourceName);
+  const tempPath = tempDownloadPathFor(targetPath);
   emitProgress(remotePath, {
     total: expectedSize || 0,
     received: 0,
@@ -493,6 +498,13 @@ async function downloadIfNeeded(
   for (let attempt = 0; attempt < DOWNLOAD_MAX_RETRIES; attempt += 1) {
     try {
       try {
+        if (await fileExists(tempPath)) {
+          await RNFS.unlink(tempPath);
+        }
+      } catch {
+        // clean previous temp file before retrying
+      }
+      try {
         if (await fileExists(targetPath)) {
           await RNFS.unlink(targetPath);
         }
@@ -501,7 +513,7 @@ async function downloadIfNeeded(
       }
       const download = RNFS.downloadFile({
         fromUrl: `${remoteUrl}?ts=${Date.now()}`,
-        toFile: targetPath,
+        toFile: tempPath,
         background: false,
         discretionary: false,
         connectionTimeout: DOWNLOAD_CONNECTION_TIMEOUT_MS,
@@ -525,19 +537,27 @@ async function downloadIfNeeded(
         throw new Error(`download-http-${result.statusCode}`);
       }
 
-      const finalStat = await RNFS.stat(targetPath);
+      const finalStat = await RNFS.stat(tempPath);
       const finalSize = Number(finalStat?.size || 0);
       if (expectedHash) {
-        const actualHash = await computeFileHash(targetPath);
+        const actualHash = await computeFileHash(tempPath);
         if (!actualHash || actualHash !== expectedHash) {
           try {
-            await RNFS.unlink(targetPath);
+            await RNFS.unlink(tempPath);
           } catch {
             // ignore
           }
           throw new Error("download-hash-mismatch");
         }
       }
+      try {
+        if (await fileExists(targetPath)) {
+          await RNFS.unlink(targetPath);
+        }
+      } catch {
+        // ignore previous file cleanup errors
+      }
+      await RNFS.moveFile(tempPath, targetPath);
       manifest[remotePath] = {
         url: remotePath,
         localPath: targetPath,
@@ -557,8 +577,18 @@ async function downloadIfNeeded(
       return targetPath;
     } catch {
       try {
+        if (await fileExists(tempPath)) {
+          await RNFS.unlink(tempPath);
+        }
+      } catch {
+        // ignore temp cleanup errors
+      }
+      try {
         if (await fileExists(targetPath)) {
-          await RNFS.unlink(targetPath);
+          const currentEntry = manifest[remotePath];
+          if (!currentEntry || currentEntry.localPath !== targetPath) {
+            await RNFS.unlink(targetPath);
+          }
         }
       } catch {
         // ignore cleanup errors
@@ -569,7 +599,9 @@ async function downloadIfNeeded(
     }
   }
 
-  return entry?.localPath && (await fileExists(entry.localPath)) ? entry.localPath : null;
+  delete manifest[remotePath];
+  await writeManifest(manifest);
+  return null;
 }
 
 async function downloadIfNeededDeduped(

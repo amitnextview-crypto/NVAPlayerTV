@@ -27,6 +27,37 @@ function sanitizeDeviceId(value) {
   return id;
 }
 
+function normalizeDeviceIds(input) {
+  const values = Array.isArray(input) ? input : [input];
+  return Array.from(
+    new Set(values.map((value) => sanitizeDeviceId(value)).filter(Boolean))
+  );
+}
+
+function emitToTargets(targetDevices, eventName, payload = {}) {
+  if (!global.io) return { success: false, delivered: 0, skipped: [] };
+  const ids = normalizeDeviceIds(targetDevices);
+  if (!ids.length) return { success: false, delivered: 0, skipped: [] };
+
+  if (ids.includes("all")) {
+    global.io.emit(eventName, payload);
+    return { success: true, delivered: Object.keys(global.connectedDevices || {}).length, skipped: [] };
+  }
+
+  const delivered = [];
+  const skipped = [];
+  for (const deviceId of ids) {
+    const socketId = global.connectedDevices?.[deviceId];
+    if (!socketId) {
+      skipped.push(deviceId);
+      continue;
+    }
+    global.io.to(socketId).emit(eventName, payload);
+    delivered.push(deviceId);
+  }
+  return { success: delivered.length > 0, delivered: delivered.length, skipped };
+}
+
 const DEFAULT_CONFIG_TEMPLATE = {
   orientation: "horizontal",
   layout: "fullscreen",
@@ -226,6 +257,21 @@ router.post("/clear-device", (req, res) => {
   return res.json({ success: false });
 });
 
+router.post("/deep-clear-device", (req, res) => {
+  const safeTarget = sanitizeDeviceId(req.body?.targetDevice);
+  if (!safeTarget) {
+    return res.json({ success: false, error: "invalid-device-id" });
+  }
+  const result = emitToTargets([safeTarget], "deep-clear-data", {
+    preserveKeys: ["activation", "deviceId", "license"],
+  });
+  return res.json({
+    success: result.success,
+    delivered: result.delivered,
+    skipped: result.skipped,
+  });
+});
+
 router.post("/restart-device", (req, res) => {
   const safeTarget = sanitizeDeviceId(req.body?.targetDevice);
   if (!safeTarget) {
@@ -248,6 +294,34 @@ router.post("/restart-device", (req, res) => {
   }
 
   return res.json({ success: false });
+});
+
+router.post("/rename-device", (req, res) => {
+  const safeTarget = sanitizeDeviceId(req.body?.targetDevice);
+  const nextName = String(req.body?.deviceName || "").trim();
+  if (!safeTarget || safeTarget === "all") {
+    return res.status(400).json({ success: false, error: "invalid-device-id" });
+  }
+  if (!nextName || nextName.length > 80) {
+    return res.status(400).json({ success: false, error: "invalid-device-name" });
+  }
+
+  const existingStatuses = Object.values(global.deviceStatus || {});
+  const duplicate = existingStatuses.find((item) => {
+    if (!item?.deviceId || item.deviceId === safeTarget) return false;
+    const currentName = String(item?.meta?.deviceName || item?.meta?.name || "").trim();
+    return currentName && currentName.toLowerCase() === nextName.toLowerCase();
+  });
+  if (duplicate) {
+    return res.status(409).json({ success: false, error: "duplicate-device-name" });
+  }
+
+  const result = emitToTargets([safeTarget], "rename-device", { deviceName: nextName });
+  return res.json({
+    success: result.success,
+    delivered: result.delivered,
+    skipped: result.skipped,
+  });
 });
 
 router.post("/clear-cache", (req, res) => {
@@ -273,6 +347,65 @@ router.post("/clear-cache", (req, res) => {
   }
 
   return res.json({ success: false });
+});
+
+router.post("/bulk-action", (req, res) => {
+  const action = String(req.body?.action || "").trim();
+  const deviceIds = normalizeDeviceIds(req.body?.deviceIds);
+  const config = req.body?.config && typeof req.body.config === "object" ? req.body.config : null;
+  const payload = req.body?.payload && typeof req.body.payload === "object" ? req.body.payload : {};
+
+  if (!action) {
+    return res.status(400).json({ success: false, error: "action-required" });
+  }
+  if (!deviceIds.length) {
+    return res.status(400).json({ success: false, error: "device-targets-required" });
+  }
+
+  if (action === "apply-config" && config) {
+    let okCount = 0;
+    for (const deviceId of deviceIds) {
+      if (deviceId === "all") continue;
+      const devicePath = path.join(CONFIG_DIR, `${deviceId}.json`);
+      fs.writeFileSync(devicePath, JSON.stringify(config, null, 2));
+      if (global.io && global.connectedDevices?.[deviceId]) {
+        global.io.to(global.connectedDevices[deviceId]).emit("config-updated");
+      }
+      okCount += 1;
+    }
+    return res.json({ success: true, applied: okCount });
+  }
+
+  const eventMap = {
+    reboot: "device-command",
+    "restart-app": "restart-app",
+    refresh: "device-command",
+    "clear-cache": "clear-cache",
+    "deep-clear-data": "deep-clear-data",
+    "kiosk-toggle": "device-command",
+    orientation: "device-command",
+    brightness: "device-command",
+    volume: "device-command",
+    mute: "device-command",
+    "force-sync": "device-command",
+    "refresh-content": "device-command",
+    "sleep-timer": "device-command",
+    "wake-timer": "device-command",
+    "auto-start-on-boot": "device-command",
+  };
+  const eventName = eventMap[action];
+  if (!eventName) {
+    return res.status(400).json({ success: false, error: "unsupported-action" });
+  }
+  const result = emitToTargets(deviceIds, eventName, {
+    action,
+    ...payload,
+  });
+  return res.json({
+    success: result.success,
+    delivered: result.delivered,
+    skipped: result.skipped,
+  });
 });
 
 router.post("/auto-reopen", (req, res) => {

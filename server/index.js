@@ -6,6 +6,18 @@ const http = require("http");
 const { Server } = require("socket.io");
 const os = require("os");
 const { exec } = require("child_process");
+const {
+  SESSION_COOKIE,
+  SESSION_TTL_MS,
+  ensureSecurityState,
+  verifyPassword,
+  changePassword,
+  createSession,
+  getSession,
+  destroySession,
+} = require("./services/cmsSecurity");
+const { listGroups, replaceGroups, saveGroup, deleteGroup, autoCreateGroups } = require("./services/groupStore");
+const uploadQueue = require("./services/uploadQueue");
 
 // Runtime writable base path (user-local in pkg mode to avoid permission issues)
 const runtimeBasePath = process.pkg
@@ -37,9 +49,8 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-const CMS_PASSWORD = String(process.env.CMS_PASSWORD || "0408");
 const CMS_API_KEY = String(process.env.CMS_API_KEY || "");
-const CMS_AUTH_COOKIE = "cms_auth";
+ensureSecurityState();
 
 function parseCookies(req) {
   const header = String(req.headers?.cookie || "");
@@ -54,7 +65,10 @@ function parseCookies(req) {
 
 function isCmsAuthed(req) {
   const cookies = parseCookies(req);
-  return cookies[CMS_AUTH_COOKIE] === "1";
+  const session = getSession(cookies[SESSION_COOKIE]);
+  if (!session) return false;
+  req.cmsSession = session;
+  return true;
 }
 
 function wantsHtml(req) {
@@ -65,7 +79,7 @@ function wantsHtml(req) {
 function isApiAuthed(req) {
   if (isCmsAuthed(req)) return true;
   const headerPwd = String(req.headers?.["x-cms-password"] || "").trim();
-  if (headerPwd && headerPwd === CMS_PASSWORD) return true;
+  if (headerPwd && verifyPassword(headerPwd)) return true;
   if (CMS_API_KEY) {
     const headerKey = String(req.headers?.["x-api-key"] || "").trim();
     const queryKey = String(req.query?.apiKey || "").trim();
@@ -195,10 +209,16 @@ app.get("/lock", (req, res) => {
 
 app.post("/lock", (req, res) => {
   const value = String(req.body?.password || "").trim();
-  if (value && value === CMS_PASSWORD) {
+  if (value && verifyPassword(value)) {
+    const session = createSession({
+      ip: String(req.headers?.["x-forwarded-for"] || req.socket?.remoteAddress || ""),
+      userAgent: String(req.headers?.["user-agent"] || ""),
+    });
     res.setHeader(
       "Set-Cookie",
-      `${CMS_AUTH_COOKIE}=1; Path=/; HttpOnly; SameSite=Strict`
+      `${SESSION_COOKIE}=${session.id}; Max-Age=${Math.floor(
+        session.maxAgeMs / 1000
+      )}; Path=/; HttpOnly; SameSite=Strict`
     );
     try {
       const indexPath = path.join(assetBasePath, "public", "index.html");
@@ -212,6 +232,64 @@ app.post("/lock", (req, res) => {
     }
   }
   return res.redirect("/lock?error=Wrong%20password");
+});
+
+app.get("/api/auth/session", (req, res) => {
+  const authed = isCmsAuthed(req);
+  res.json({
+    ok: true,
+    authenticated: authed,
+    inactivityTimeoutMs: SESSION_TTL_MS,
+    expiresAt: authed ? req.cmsSession?.expiresAt || null : null,
+  });
+});
+
+app.post("/api/auth/login", (req, res) => {
+  const password = String(req.body?.password || "").trim();
+  if (!verifyPassword(password)) {
+    return res.status(401).json({ ok: false, error: "invalid-password" });
+  }
+  const session = createSession({
+    ip: String(req.headers?.["x-forwarded-for"] || req.socket?.remoteAddress || ""),
+    userAgent: String(req.headers?.["user-agent"] || ""),
+  });
+  res.setHeader(
+    "Set-Cookie",
+    `${SESSION_COOKIE}=${session.id}; Max-Age=${Math.floor(
+      session.maxAgeMs / 1000
+    )}; Path=/; HttpOnly; SameSite=Strict`
+  );
+  return res.json({
+    ok: true,
+    inactivityTimeoutMs: SESSION_TTL_MS,
+    expiresAt: session.expiresAt,
+  });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const cookies = parseCookies(req);
+  destroySession(cookies[SESSION_COOKIE]);
+  res.setHeader(
+    "Set-Cookie",
+    `${SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict`
+  );
+  return res.json({ ok: true });
+});
+
+app.post("/api/auth/change-password", requireCmsAuth, (req, res) => {
+  const currentPassword = String(req.body?.currentPassword || "");
+  const nextPassword = String(req.body?.nextPassword || "");
+  const result = changePassword(currentPassword, nextPassword);
+  if (!result.ok) {
+    return res.status(400).json(result);
+  }
+  const cookies = parseCookies(req);
+  destroySession(cookies[SESSION_COOKIE]);
+  res.setHeader(
+    "Set-Cookie",
+    `${SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict`
+  );
+  return res.json({ ok: true });
 });
 
 app.use((req, res, next) => {
@@ -302,6 +380,7 @@ const deviceStatus = {};
 const socketToDevice = {};
 global.connectedDevices = connectedDevices;
 global.deviceStatus = deviceStatus;
+global.isDeviceActivelyOnline = isDeviceActivelyOnline;
 const DEVICE_ONLINE_TTL_MS = 45000;
 
 function nowIso() {
@@ -455,6 +534,116 @@ app.get("/device-status", (req, res) => {
     });
 
   res.json(list);
+});
+
+app.get("/api/groups", requireCmsAuth, (_req, res) => {
+  const groups = listGroups().map((group) => {
+    const deviceSummaries = group.devices.map((deviceId) => {
+      const status = deviceStatus[deviceId] || null;
+      return {
+        deviceId,
+        online: isDeviceActivelyOnline(deviceId),
+        name: status?.meta?.deviceName || status?.meta?.name || deviceId,
+        lastSeen: status?.lastSeen || null,
+      };
+    });
+    return {
+      ...group,
+      deviceCount: deviceSummaries.length,
+      onlineCount: deviceSummaries.filter((item) => item.online).length,
+      offlineCount: deviceSummaries.filter((item) => !item.online).length,
+      devices: deviceSummaries,
+    };
+  });
+  res.json({ ok: true, groups });
+});
+
+app.post("/api/groups", requireCmsAuth, (req, res) => {
+  const result = saveGroup(req.body?.name, req.body?.devices, req.body?.id);
+  if (!result.ok) {
+    return res.status(400).json(result);
+  }
+  return res.json({ ok: true, group: result.group });
+});
+
+app.delete("/api/groups/:id", requireCmsAuth, (req, res) => {
+  const result = deleteGroup(String(req.params?.id || ""));
+  if (!result.ok) {
+    return res.status(404).json(result);
+  }
+  return res.json({ ok: true });
+});
+
+app.post("/api/groups/auto-create", requireCmsAuth, (req, res) => {
+  const created = autoCreateGroups(req.body?.devices, req.body?.groupSize || 5);
+  return res.json({ ok: true, groups: created });
+});
+
+app.get("/api/upload-queue", requireCmsAuth, (_req, res) => {
+  return res.json({ ok: true, ...uploadQueue.getQueueSnapshot() });
+});
+
+app.post("/api/upload-queue/settings", requireCmsAuth, (req, res) => {
+  const settings = uploadQueue.updateSettings(req.body || {});
+  return res.json({ ok: true, settings });
+});
+
+app.post("/api/upload-queue/pause", requireCmsAuth, (req, res) => {
+  const paused = uploadQueue.setPaused(true);
+  return res.json({ ok: true, paused });
+});
+
+app.post("/api/upload-queue/resume", requireCmsAuth, (req, res) => {
+  const paused = uploadQueue.setPaused(false);
+  global.processPendingEnterpriseUploads?.();
+  return res.json({ ok: true, paused });
+});
+
+app.post("/api/upload-queue/retry-failed/:jobId", requireCmsAuth, (req, res) => {
+  const jobId = String(req.params?.jobId || "").trim();
+  const job = uploadQueue.getJob(jobId);
+  if (!job) {
+    return res.status(404).json({ ok: false, error: "job-not-found" });
+  }
+  uploadQueue.updateJob(jobId, {
+    status: "pending",
+    retryOnlyFailed: true,
+    options: {
+      ...(job.options && typeof job.options === "object" ? job.options : {}),
+      retryOnlyFailed: true,
+    },
+  });
+  global.processPendingEnterpriseUploads?.();
+  return res.json({ ok: true, jobId });
+});
+
+app.get("/api/backup/export", requireCmsAuth, (_req, res) => {
+  const queue = uploadQueue.getQueueSnapshot();
+  const groups = listGroups();
+  return res.json({
+    ok: true,
+    exportedAt: new Date().toISOString(),
+    data: {
+      groups,
+      uploadQueueSettings: queue.settings,
+    },
+  });
+});
+
+app.post("/api/backup/restore", requireCmsAuth, (req, res) => {
+  const payload = req.body?.data && typeof req.body.data === "object" ? req.body.data : req.body;
+  if (!payload || typeof payload !== "object") {
+    return res.status(400).json({ ok: false, error: "invalid-backup-payload" });
+  }
+  const groups = replaceGroups(payload.groups || []);
+  const settings = uploadQueue.updateSettings(payload.uploadQueueSettings || {});
+  return res.json({
+    ok: true,
+    restored: {
+      groups: groups.length,
+      uploadQueueSettings: settings,
+    },
+  });
 });
 
 // Get active local IP

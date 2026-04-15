@@ -37,6 +37,9 @@ public final class EmbeddedCmsRuntime {
     public static final String KEY_DEVICE_NAME = "device_name";
     public static final String KEY_RUNTIME_INFO = "runtime_info";
     public static final String KEY_HOSTNAME = "cms_hostname";
+    public static final String KEY_PREFERRED_PORT = "preferred_port";
+    public static final String KEY_ENTERPRISE_STATE = "enterprise_state";
+    public static final String KEY_CMS_PASSWORD = "cms_password";
     public static final int DEFAULT_SERVER_PORT = 8080;
     private static final int[] SERVER_PORT_CANDIDATES = new int[]{8080, 8081, 9090, 10080};
 
@@ -58,7 +61,8 @@ public final class EmbeddedCmsRuntime {
         synchronized (LOCK) {
             Context appContext = context.getApplicationContext();
             if (server == null) {
-                for (int port : SERVER_PORT_CANDIDATES) {
+                int[] ports = buildServerPortOrder(context);
+                for (int port : ports) {
                     EmbeddedCmsServer candidate = new EmbeddedCmsServer(appContext, port);
                     try {
                         candidate.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
@@ -78,6 +82,22 @@ public final class EmbeddedCmsRuntime {
                 discoveryManager.start();
             }
         }
+    }
+
+    private static int[] buildServerPortOrder(Context context) {
+        int preferred = getPreferredPort(context);
+        if (preferred <= 0) return SERVER_PORT_CANDIDATES;
+        int[] ports = new int[SERVER_PORT_CANDIDATES.length + 1];
+        ports[0] = preferred;
+        int index = 1;
+        for (int candidate : SERVER_PORT_CANDIDATES) {
+            if (candidate == preferred) continue;
+            ports[index++] = candidate;
+        }
+        if (index == ports.length) return ports;
+        int[] trimmed = new int[index];
+        System.arraycopy(ports, 0, trimmed, 0, index);
+        return trimmed;
     }
 
     public static SharedPreferences getPrefs(Context context) {
@@ -100,6 +120,157 @@ public final class EmbeddedCmsRuntime {
     public static String getDeviceName(Context context) {
         String saved = String.valueOf(getPrefs(context).getString(KEY_DEVICE_NAME, "")).trim();
         return saved.isEmpty() ? getDefaultDeviceName() : saved;
+    }
+
+    public static int sanitizePreferredPort(int value) {
+        if (value < 1024 || value > 65535) return 0;
+        return value;
+    }
+
+    public static int getPreferredPort(Context context) {
+        try {
+            int saved = getPrefs(context).getInt(KEY_PREFERRED_PORT, 0);
+            return sanitizePreferredPort(saved);
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    public static void setPreferredPort(Context context, int port) {
+        int safePort = sanitizePreferredPort(port);
+        getPrefs(context).edit().putInt(KEY_PREFERRED_PORT, safePort).apply();
+    }
+
+    public static String getCmsPassword(Context context) {
+        String saved = String.valueOf(getPrefs(context).getString(KEY_CMS_PASSWORD, "")).trim();
+        return saved.isEmpty() ? "0408" : saved;
+    }
+
+    public static void setCmsPassword(Context context, String value) {
+        String next = String.valueOf(value == null ? "" : value).trim();
+        if (next.isEmpty()) next = "0408";
+        getPrefs(context).edit().putString(KEY_CMS_PASSWORD, next).apply();
+    }
+
+    public static JSONObject getEnterpriseState(Context context) {
+        String raw = String.valueOf(getPrefs(context).getString(KEY_ENTERPRISE_STATE, "")).trim();
+        if (raw.isEmpty()) return defaultEnterpriseState();
+        try {
+            return normalizeEnterpriseState(new JSONObject(raw));
+        } catch (Exception ignored) {
+            return defaultEnterpriseState();
+        }
+    }
+
+    public static void setEnterpriseState(Context context, JSONObject state) {
+        JSONObject normalized = normalizeEnterpriseState(state);
+        getPrefs(context).edit().putString(KEY_ENTERPRISE_STATE, normalized.toString()).apply();
+    }
+
+    public static JSONObject defaultEnterpriseState() {
+        JSONObject out = new JSONObject();
+        try {
+            out.put("groups", new JSONArray());
+            out.put("logs", new JSONArray());
+            JSONObject queue = new JSONObject();
+            queue.put("paused", false);
+            JSONObject settings = new JSONObject();
+            settings.put("maxConcurrentUploads", 3);
+            settings.put("groupSize", 5);
+            queue.put("settings", settings);
+            queue.put("history", new JSONArray());
+            queue.put("jobs", new JSONArray());
+            out.put("queue", queue);
+            out.put("accessOverrides", new JSONObject());
+            out.put("updatedAt", System.currentTimeMillis());
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    public static JSONObject normalizeEnterpriseState(JSONObject state) {
+        JSONObject out = defaultEnterpriseState();
+        if (state == null) return out;
+        try {
+            JSONArray groups = state.optJSONArray("groups");
+            if (groups != null) out.put("groups", groups);
+            JSONArray logs = state.optJSONArray("logs");
+            if (logs != null) out.put("logs", logs);
+            JSONObject queue = state.optJSONObject("queue");
+            if (queue != null) {
+                JSONObject mergedQueue = out.optJSONObject("queue");
+                if (mergedQueue == null) mergedQueue = new JSONObject();
+                mergedQueue.put("paused", queue.optBoolean("paused", false));
+                JSONArray history = queue.optJSONArray("history");
+                mergedQueue.put("history", history == null ? new JSONArray() : history);
+                JSONArray jobs = queue.optJSONArray("jobs");
+                mergedQueue.put("jobs", jobs == null ? new JSONArray() : jobs);
+                JSONObject settings = queue.optJSONObject("settings");
+                JSONObject mergedSettings = mergedQueue.optJSONObject("settings");
+                if (mergedSettings == null) mergedSettings = new JSONObject();
+                if (settings != null) {
+                    mergedSettings.put("maxConcurrentUploads", Math.max(1, Math.min(5, settings.optInt("maxConcurrentUploads", 3))));
+                    mergedSettings.put("groupSize", Math.max(1, Math.min(20, settings.optInt("groupSize", 5))));
+                }
+                mergedQueue.put("settings", mergedSettings);
+                out.put("queue", mergedQueue);
+            }
+            JSONObject accessOverrides = state.optJSONObject("accessOverrides");
+            if (accessOverrides != null) out.put("accessOverrides", accessOverrides);
+            out.put("updatedAt", state.optLong("updatedAt", System.currentTimeMillis()));
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    public static void appendEnterpriseLog(Context context, String type, String title, String message) {
+        try {
+            JSONObject state = getEnterpriseState(context);
+            JSONArray logs = state.optJSONArray("logs");
+            if (logs == null) logs = new JSONArray();
+            JSONArray next = new JSONArray();
+            JSONObject entry = new JSONObject();
+            entry.put("id", "log-" + System.currentTimeMillis());
+            entry.put("type", String.valueOf(type == null ? "info" : type));
+            entry.put("title", String.valueOf(title == null ? "" : title));
+            entry.put("message", String.valueOf(message == null ? "" : message));
+            entry.put("createdAt", System.currentTimeMillis());
+            next.put(entry);
+            for (int i = 0; i < logs.length() && i < 59; i += 1) {
+                next.put(logs.opt(i));
+            }
+            state.put("logs", next);
+            state.put("updatedAt", System.currentTimeMillis());
+            setEnterpriseState(context, state);
+        } catch (Exception ignored) {
+        }
+    }
+
+    public static void restartServerAsync(Context context) {
+        final Context appContext = context.getApplicationContext();
+        new Thread(() -> {
+            try {
+                Thread.sleep(180L);
+            } catch (Exception ignored) {
+            }
+            synchronized (LOCK) {
+                try {
+                    if (server != null) {
+                        server.stop();
+                    }
+                } catch (Exception ignored) {
+                }
+                server = null;
+                currentServerPort = DEFAULT_SERVER_PORT;
+            }
+            ensureStarted(appContext);
+            if (discoveryManager != null) {
+                try {
+                    discoveryManager.restartAdvertising();
+                } catch (Exception ignored) {
+                }
+            }
+        }, "embedded-cms-restart").start();
     }
 
     public static void setDeviceName(Context context, String value) {
@@ -281,6 +452,7 @@ public final class EmbeddedCmsRuntime {
             out.put("status", "online");
             out.put("online", true);
             out.put("port", getServerPort());
+            out.put("preferredPort", getPreferredPort(context));
             out.put("lastSeen", System.currentTimeMillis());
             out.put("appState", runtime.optString("appState", "running"));
             out.put("runtime", runtime);

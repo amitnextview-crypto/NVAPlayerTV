@@ -67,6 +67,13 @@ export function setEmbeddedRuntimeInfo(payload: Record<string, any>) {
   }
 }
 
+export async function clearEmbeddedCmsState() {
+  if (!DeviceIdModule?.clearEmbeddedCmsState) {
+    throw new Error("Embedded CMS clear is not available.");
+  }
+  return DeviceIdModule.clearEmbeddedCmsState();
+}
+
 export async function pickMediaFilesForSection(section: number) {
   if (!DeviceIdModule?.pickMediaFilesForSection) {
     throw new Error("TV media picker is not available.");

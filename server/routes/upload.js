@@ -5,6 +5,7 @@ const path = require("path");
 const { execFile } = require("child_process");
 const { clearDeviceTimeline, updateSectionTimeline } = require("../services/playbackTimeline");
 const { encodeVideo } = require("../services/videoEncoder");
+const uploadQueue = require("../services/uploadQueue");
 const { safeStat, safeReaddir, safeExistsDir, safeExists, wait } = require("../utils/fsSafe");
 
 const router = express.Router();
@@ -56,12 +57,30 @@ const MAX_FILES_PER_UPLOAD = 120;
 const DISABLE_UPLOAD_TRANSCODE = String(process.env.DISABLE_UPLOAD_TRANSCODE || "") === "1";
 const DIRECT_PLAY_VIDEO_EXTENSIONS = new Set([".mp4"]);
 const SAFE_DEVICE_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+const activeEnterpriseJobs = new Set();
 
 function sanitizeDeviceId(value) {
   const id = String(value || "").trim();
   if (id === "all") return id;
   if (!SAFE_DEVICE_RE.test(id)) return "";
   return id;
+}
+
+function normalizeDeviceIdList(value) {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map((item) => sanitizeDeviceId(item)).filter(Boolean)));
+  }
+  if (typeof value === "string") {
+    return Array.from(
+      new Set(
+        value
+          .split(",")
+          .map((item) => sanitizeDeviceId(item))
+          .filter(Boolean)
+      )
+    );
+  }
+  return [];
 }
 
 function emitSectionUploadStatus(deviceId, section, status, message = "") {
@@ -549,8 +568,385 @@ async function optimizeVideosInDirectory(dirPath) {
   }
 }
 
-router.post("/:deviceId/section/:section", (req, res) => {
+function parseRequestOptions(rawOptions) {
+  if (!rawOptions) return {};
+  if (typeof rawOptions === "object") return rawOptions;
+  try {
+    return JSON.parse(String(rawOptions || "{}"));
+  } catch {
+    return {};
+  }
+}
+
+function fileSignatureForDir(dirPath) {
+  if (!safeExistsDir(dirPath)) return "";
+  return safeReaddir(dirPath)
+    .map((name) => {
+      const full = path.join(dirPath, name);
+      const stat = safeStat(full);
+      return [name, Number(stat?.size || 0), Number(stat?.mtimeMs || 0)].join("|");
+    })
+    .sort((a, b) => a.localeCompare(b))
+    .join("~");
+}
+
+async function cloneDir(sourceDir, targetDir) {
+  ensureDir(targetDir);
+  const entries = safeReaddir(sourceDir);
+  for (const name of entries) {
+    const from = path.join(sourceDir, name);
+    const to = path.join(targetDir, name);
+    fs.copyFileSync(from, to);
+  }
+}
+
+function isQueuePaused() {
+  return !!uploadQueue.getQueueSnapshot()?.paused;
+}
+
+function upsertJobResult(results, nextResult) {
+  const deviceId = String(nextResult?.deviceId || "").trim();
+  if (!deviceId) return results;
+  const filtered = results.filter((item) => String(item?.deviceId || "").trim() !== deviceId);
+  filtered.push({
+    ...nextResult,
+    deviceId,
+    updatedAt: new Date().toISOString(),
+  });
+  return filtered;
+}
+
+function getEligibleTargetIds(job, retryOnlyFailed) {
+  const targetIds = Array.isArray(job?.targets) ? job.targets : [];
+  const previousResults = Array.isArray(job?.results) ? job.results : [];
+
+  if (retryOnlyFailed) {
+    const failedIds = previousResults
+      .filter((item) => item?.status === "failed")
+      .map((item) => item.deviceId)
+      .filter(Boolean);
+    return failedIds.length ? Array.from(new Set(failedIds)) : targetIds;
+  }
+
+  const completedStates = new Set(["success", "skipped"]);
+  return targetIds.filter((deviceId) => {
+    const prior = previousResults.find((item) => item?.deviceId === deviceId);
+    return !prior || !completedStates.has(String(prior.status || ""));
+  });
+}
+
+function getRetainedResults(previousResults, eligibleTargetIds) {
+  const eligible = new Set(eligibleTargetIds.map((item) => String(item || "").trim()).filter(Boolean));
+  return previousResults.filter((item) => !eligible.has(String(item?.deviceId || "").trim()));
+}
+
+async function processEnterpriseJob(jobId) {
+  if (!jobId || activeEnterpriseJobs.has(jobId)) return;
+  activeEnterpriseJobs.add(jobId);
+  try {
+    const snapshot = uploadQueue.getQueueSnapshot();
+    if (snapshot.paused) return;
+    const job = uploadQueue.getJob(jobId);
+    if (!job || !job.spoolDir || !safeExistsDir(job.spoolDir)) {
+      if (job) {
+        uploadQueue.archiveJob(jobId, {
+          status: "failed",
+          overallProgress: 100,
+          error: "spool-missing",
+        });
+      }
+      return;
+    }
+
+    const requestOptions = job.options && typeof job.options === "object" ? job.options : {};
+    const retryOnlyFailed = !!requestOptions.retryOnlyFailed;
+    const previousResults = Array.isArray(job.results) ? job.results : [];
+    const eligibleTargetIds = getEligibleTargetIds(job, retryOnlyFailed);
+    const retainedResults = getRetainedResults(previousResults, eligibleTargetIds);
+
+    if (!eligibleTargetIds.length) {
+      const failed = retainedResults.filter((item) => item.status === "failed");
+      const succeeded = retainedResults.filter((item) => item.status === "success");
+      const status = failed.length ? (succeeded.length ? "partial" : "failed") : "success";
+      if (status === "success") {
+        uploadQueue.archiveJob(jobId, {
+          status,
+          overallProgress: 100,
+          results: retainedResults,
+        });
+        try {
+          fs.rmSync(job.spoolDir, { recursive: true, force: true });
+        } catch {
+        }
+      } else {
+        uploadQueue.updateJob(jobId, {
+          status,
+          overallProgress: 100,
+          results: retainedResults,
+        });
+      }
+      return;
+    }
+
+    const onlineFilter = !!requestOptions.skipOfflineDevices;
+    const liveTargets = eligibleTargetIds.filter((deviceId) => {
+      if (!onlineFilter) return true;
+      if (deviceId === "all") return true;
+      return !!global.isDeviceActivelyOnline?.(deviceId);
+    });
+    const skippedOffline = eligibleTargetIds
+      .filter((deviceId) => !liveTargets.includes(deviceId))
+      .map((deviceId) => ({
+        deviceId,
+        status: "skipped",
+        reason: "offline",
+      }));
+
+    let results = [...retainedResults];
+    let cursor = 0;
+    let pauseRequested = false;
+    const concurrency = Math.max(
+      1,
+      Math.min(
+        5,
+        Number(requestOptions.maxConcurrentUploads || snapshot.settings.maxConcurrentUploads || 3)
+      )
+    );
+    uploadQueue.updateJob(jobId, {
+      status: "uploading",
+      retryOnlyFailed: false,
+      overallProgress: Math.round((results.length / Math.max(1, eligibleTargetIds.length)) * 100),
+      results,
+    });
+
+    const worker = async () => {
+      while (cursor < liveTargets.length) {
+        if (isQueuePaused()) {
+          pauseRequested = true;
+          return;
+        }
+        const index = cursor;
+        cursor += 1;
+        const deviceId = liveTargets[index];
+        const tempDir = path.join(
+          uploadsBase,
+          deviceId,
+          `section${job.section}__incoming_enterprise_${Date.now()}_${index}`
+        );
+        try {
+          results = upsertJobResult(results, { deviceId, status: "uploading" });
+          uploadQueue.updateJob(jobId, {
+            status: "uploading",
+            overallProgress: Math.round((results.filter((item) => item.status !== "uploading").length / Math.max(1, eligibleTargetIds.length)) * 100),
+            results,
+          });
+          if (
+            requestOptions.skipIfSameExists &&
+            fileSignatureForDir(resolveActiveSectionDir(deviceId, job.section)) === job.fileHash
+          ) {
+            results = upsertJobResult(results, { deviceId, status: "skipped", reason: "duplicate" });
+          } else {
+            await cloneDir(job.spoolDir, tempDir);
+            await processIncomingSection(deviceId, String(job.section), tempDir, job.requestBody || {});
+            results = upsertJobResult(results, { deviceId, status: "success" });
+          }
+        } catch (error) {
+          try {
+            if (safeExists(tempDir)) {
+              fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+          } catch {
+          }
+          results = upsertJobResult(results, {
+            deviceId,
+            status: "failed",
+            reason: humanizeUploadError(error, "Enterprise upload failed"),
+          });
+        }
+        uploadQueue.updateJob(jobId, {
+          status: "uploading",
+          overallProgress: Math.round((results.length / Math.max(1, eligibleTargetIds.length)) * 100),
+          results,
+        });
+      }
+    };
+
+    await Promise.allSettled(
+      Array.from({ length: Math.min(concurrency, Math.max(1, liveTargets.length)) }, () => worker())
+    );
+
+    if (pauseRequested || isQueuePaused()) {
+      uploadQueue.updateJob(jobId, {
+        status: "pending",
+        overallProgress: Math.round((results.filter((item) => item.status !== "uploading").length / Math.max(1, eligibleTargetIds.length)) * 100),
+        results,
+      });
+      uploadQueue.appendLog("Enterprise upload paused", {
+        jobId,
+        completedTargets: results.filter((item) => item.status === "success").length,
+      });
+      return;
+    }
+
+    const normalizedResults = skippedOffline.reduce(
+      (acc, item) => upsertJobResult(acc, item),
+      [...results]
+    );
+    const failed = normalizedResults.filter((item) => item.status === "failed");
+    const succeeded = normalizedResults.filter((item) => item.status === "success");
+    const status = failed.length ? (succeeded.length ? "partial" : "failed") : "success";
+
+    if (status === "success") {
+      uploadQueue.archiveJob(jobId, {
+        status,
+        overallProgress: 100,
+        results: normalizedResults,
+      });
+      try {
+        fs.rmSync(job.spoolDir, { recursive: true, force: true });
+      } catch {
+      }
+      return;
+    }
+
+    uploadQueue.updateJob(jobId, {
+      status,
+      overallProgress: 100,
+      results: normalizedResults,
+    });
+  } finally {
+    activeEnterpriseJobs.delete(jobId);
+    if (!isQueuePaused()) {
+      setTimeout(() => {
+        try {
+          schedulePendingEnterpriseJobs();
+        } catch {
+        }
+      }, 50);
+    }
+  }
+}
+
+function schedulePendingEnterpriseJobs() {
+  const snapshot = uploadQueue.getQueueSnapshot();
+  if (snapshot.paused) return;
+  const candidates = (snapshot.jobs || [])
+    .filter((job) => ["pending", "uploading", "failed", "partial"].includes(String(job.status || "")))
+    .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
+  const availableSlots = Math.max(0, 1 - activeEnterpriseJobs.size);
+  for (const job of candidates.slice(0, availableSlots)) {
+    processEnterpriseJob(job.id).catch((error) => {
+      uploadQueue.appendLog("Enterprise job crashed", {
+        jobId: job.id,
+        error: String(error?.message || error),
+      });
+    });
+  }
+}
+
+async function processIncomingSection(deviceId, section, tempSectionPath, requestBody = {}) {
+  const incomingFiles = safeExistsDir(tempSectionPath)
+    ? safeReaddir(tempSectionPath)
+    : [];
+  const presentationFiles = incomingFiles.filter((name) =>
+    /\.(ppt|pptx|pptm|pps|ppsx|potx)$/i.test(String(name || ""))
+  );
+  if (presentationFiles.length) {
+    emitSectionUploadStatus(
+      deviceId,
+      section,
+      "processing",
+      "Converting PowerPoint to images... Please wait."
+    );
+    for (const fileName of presentationFiles) {
+      const fullPath = path.join(tempSectionPath, fileName);
+      await convertPresentationToImages(fullPath, tempSectionPath);
+      await removePathWithRetry(fullPath, { force: true }, 3, 120);
+    }
+  }
+  const incomingHasVideo = incomingFiles.some((name) =>
+    VIDEO_EXTENSIONS.has(path.extname(name).toLowerCase())
+  );
+  const incomingHasPpt =
+    String(requestBody?.containsPpt || "").trim() === "1" ||
+    incomingFiles.some((name) =>
+      PPT_EXTENSIONS.has(path.extname(name).toLowerCase())
+    );
+  if (incomingHasPpt) {
+    try {
+      fs.writeFileSync(path.join(tempSectionPath, PPT_MARKER_NAME), "1", "utf8");
+    } catch {
+    }
+  }
+  if (incomingHasVideo && anyOtherSectionHasVideoOrPpt(deviceId, section)) {
+    throw new Error("Video/PPT allowed in only one grid section. Remove PPT/video from all sections first.");
+  }
+  if (incomingHasPpt && anyOtherSectionHasVideoOrPpt(deviceId, section)) {
+    throw new Error("PPT/video allowed in only one grid section. Remove PPT/video from all sections first.");
+  }
+
+  if (incomingHasVideo) {
+    emitSectionUploadStatus(
+      deviceId,
+      section,
+      "processing",
+      "Processing video for TV compatibility... Please wait."
+    );
+    await optimizeVideosInDirectory(tempSectionPath);
+  }
+
+  const activation = await activateIncomingSection(deviceId, section, tempSectionPath);
+
+  if (deviceId === "all" && safeExistsDir(uploadsBase)) {
+    const folders = safeReaddir(uploadsBase);
+    for (const folder of folders) {
+      if (folder === "all") continue;
+      clearDeviceTimeline(folder);
+      const { sectionBase, versionsDir, activeFile } = sectionPaths(folder, section);
+      try {
+        if (safeExists(sectionBase)) {
+          fs.rmSync(sectionBase, { recursive: true, force: true });
+        }
+        if (safeExists(versionsDir)) {
+          fs.rmSync(versionsDir, { recursive: true, force: true });
+        }
+        if (safeExists(activeFile)) {
+          fs.rmSync(activeFile, { force: true });
+        }
+      } catch {
+      }
+    }
+  }
+
+  if (global.io) {
+    const syncAt = Date.now() + 500;
+    const timeline = updateSectionTimeline(deviceId, section, {
+      targetDevice: deviceId,
+      syncAt,
+      updatedAt: activation?.updatedAt || Date.now(),
+      cycleId: `${section}-${String(activation?.versionName || Date.now())}`,
+      fileCount: Array.isArray(activation?.activeFiles) ? activation.activeFiles.length : 0,
+      mediaSignature: Array.isArray(activation?.activeFiles)
+        ? activation.activeFiles.join("|")
+        : "",
+    });
+    if (deviceId === "all") {
+      global.io.emit("media-updated", { syncAt, section, timeline });
+    } else if (global.connectedDevices?.[deviceId]) {
+      const socketId = global.connectedDevices[deviceId];
+      global.io.to(socketId).emit("media-updated", { syncAt, section, timeline });
+    }
+  }
+
+  emitSectionUploadStatus(deviceId, section, "ready", "");
+  return activation;
+}
+
+router.post("/:deviceId/section/:section", (req, res, next) => {
   const deviceId = sanitizeDeviceId(req.params.deviceId);
+  if (String(req.params.deviceId || "").trim() === "enterprise") {
+    return next();
+  }
   if (!deviceId) {
     return res.status(400).json({ ok: false, error: "invalid-device-id" });
   }
@@ -618,144 +1014,12 @@ router.post("/:deviceId/section/:section", (req, res) => {
           return res.status(400).json({ error: message });
         }
 
-        const incomingFiles = safeExistsDir(tempSectionPath)
-          ? safeReaddir(tempSectionPath)
-          : [];
-        const presentationFiles = incomingFiles.filter((name) =>
-          /\.(ppt|pptx|pptm|pps|ppsx|potx)$/i.test(String(name || ""))
-        );
-        if (presentationFiles.length) {
-          emitSectionUploadStatus(
-            deviceId,
-            section,
-            "processing",
-            "Converting PowerPoint to images... Please wait."
-          );
-          try {
-            for (const fileName of presentationFiles) {
-              const fullPath = path.join(tempSectionPath, fileName);
-              await convertPresentationToImages(fullPath, tempSectionPath);
-              await removePathWithRetry(fullPath, { force: true }, 3, 120);
-            }
-          } catch (pptErr) {
-            fs.rmSync(tempSectionPath, { recursive: true, force: true });
-            emitSectionUploadStatus(
-              deviceId,
-              section,
-              "error",
-              "PowerPoint conversion failed. Install LibreOffice on CMS PC and retry."
-            );
-            return res.status(400).json({
-              error:
-                "PowerPoint conversion failed. Install LibreOffice on CMS PC (soffice) or set LIBREOFFICE_PATH, then retry.",
-            });
-          }
-        }
-        const incomingHasVideo = incomingFiles.some((name) =>
-          VIDEO_EXTENSIONS.has(path.extname(name).toLowerCase())
-        );
-        const incomingHasPpt =
-          String(req.body?.containsPpt || "").trim() === "1" ||
-          incomingFiles.some((name) =>
-            PPT_EXTENSIONS.has(path.extname(name).toLowerCase())
-          );
-        if (incomingHasPpt) {
-          try {
-            fs.writeFileSync(path.join(tempSectionPath, PPT_MARKER_NAME), "1", "utf8");
-          } catch {
-            // ignore marker write errors
-          }
-        }
-        if (incomingHasVideo && anyOtherSectionHasVideoOrPpt(deviceId, section)) {
-          fs.rmSync(tempSectionPath, { recursive: true, force: true });
-          emitSectionUploadStatus(
-            deviceId,
-            section,
-            "error",
-            "Video/PPT allowed in only one section. Remove PPT/video from all sections first."
-          );
-          return res.status(400).json({
-            error: "Video/PPT allowed in only one grid section. Remove PPT/video from all sections first.",
-          });
-        }
-        if (incomingHasPpt && anyOtherSectionHasVideoOrPpt(deviceId, section)) {
-          fs.rmSync(tempSectionPath, { recursive: true, force: true });
-          emitSectionUploadStatus(
-            deviceId,
-            section,
-            "error",
-            "PPT/video allowed in only one section. Remove PPT/video from all sections first."
-          );
-          return res.status(400).json({
-            error: "PPT/video allowed in only one grid section. Remove PPT/video from all sections first.",
-          });
-        }
-
-        if (incomingHasVideo) {
-          try {
-            emitSectionUploadStatus(
-              deviceId,
-              section,
-              "processing",
-              "Processing video for TV compatibility... Please wait."
-            );
-            await optimizeVideosInDirectory(tempSectionPath);
-          } catch (e) {
-            console.log("Video optimization step skipped:", String(e?.message || e));
-          }
-        }
-
-        const activation = await activateIncomingSection(deviceId, section, tempSectionPath);
-
-        // Apply "all" upload to all devices only after successful activation.
-        // Remove per-device section overrides so they follow "all" immediately.
-        if (deviceId === "all" && safeExistsDir(uploadsBase)) {
-          const folders = safeReaddir(uploadsBase);
-          for (const folder of folders) {
-            if (folder === "all") continue;
-            clearDeviceTimeline(folder);
-            const { sectionBase, versionsDir, activeFile } = sectionPaths(folder, section);
-            try {
-              if (safeExists(sectionBase)) {
-                fs.rmSync(sectionBase, { recursive: true, force: true });
-              }
-              if (safeExists(versionsDir)) {
-                fs.rmSync(versionsDir, { recursive: true, force: true });
-              }
-              if (safeExists(activeFile)) {
-                fs.rmSync(activeFile, { force: true });
-              }
-            } catch {
-            }
-          }
-        }
+        const activation = await processIncomingSection(deviceId, section, tempSectionPath, req.body);
 
         console.log(
           "New files saved in:",
           path.join(uploadsBase, deviceId, `section${section}`)
         );
-
-        if (global.io) {
-          const syncAt = Date.now() + 500;
-          const timeline = updateSectionTimeline(deviceId, section, {
-            targetDevice: deviceId,
-            syncAt,
-            updatedAt: activation?.updatedAt || Date.now(),
-            cycleId: `${section}-${String(activation?.versionName || Date.now())}`,
-            fileCount: Array.isArray(activation?.activeFiles) ? activation.activeFiles.length : 0,
-            mediaSignature: Array.isArray(activation?.activeFiles)
-              ? activation.activeFiles.join("|")
-              : "",
-          });
-          if (deviceId === "all") {
-            global.io.emit("media-updated", { syncAt, section, timeline });
-          } else if (global.connectedDevices?.[deviceId]) {
-            const socketId = global.connectedDevices[deviceId];
-            global.io.to(socketId).emit("media-updated", { syncAt, section, timeline });
-          }
-        }
-
-        emitSectionUploadStatus(deviceId, section, "ready", "");
         return res.json({ success: true });
       } catch (innerError) {
         if (safeExists(tempSectionPath)) {
@@ -780,5 +1044,84 @@ router.post("/:deviceId/section/:section", (req, res) => {
     return res.status(500).json({ error: humanizeUploadError(error, "Upload failed on server") });
   }
 });
+
+router.post("/enterprise/section/:section", (req, res) => {
+  const section = Number(req.params.section || 1);
+  const spoolToken = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const spoolDir = path.join(uploadsBase, `_enterprise_spool_${spoolToken}`);
+  ensureDir(spoolDir);
+
+  const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, spoolDir),
+    filename: (reqRef, file, cb) => cb(null, sanitizeFileName(file, reqRef)),
+  });
+  const upload = multer({
+    storage,
+    limits: {
+      fileSize: MAX_FILE_SIZE_BYTES,
+      files: MAX_FILES_PER_UPLOAD,
+    },
+  }).array("files");
+
+  upload(req, res, async (err) => {
+    if (err) {
+      try {
+        fs.rmSync(spoolDir, { recursive: true, force: true });
+      } catch {
+      }
+      return res.status(400).json({ ok: false, error: humanizeUploadError(err, "Enterprise upload failed") });
+    }
+
+    try {
+      const requestOptions = parseRequestOptions(req.body?.options);
+      const targetIds = normalizeDeviceIdList(req.body?.deviceIds || req.body?.targets);
+      if (!targetIds.length) {
+        throw new Error("device-targets-required");
+      }
+
+      const fileName = safeReaddir(spoolDir)[0] || "upload";
+      const fileHash = fileSignatureForDir(spoolDir);
+      const job = uploadQueue.createJob({
+        section,
+        fileName,
+        fileHash,
+        fileSize: safeReaddir(spoolDir)
+          .map((name) => Number(safeStat(path.join(spoolDir, name))?.size || 0))
+          .reduce((sum, size) => sum + size, 0),
+        targets: targetIds,
+        priority: Number(requestOptions.priority || 0),
+        options: requestOptions,
+        spoolDir,
+        requestBody: {
+          containsPpt: req.body?.containsPpt,
+        },
+      });
+
+      schedulePendingEnterpriseJobs();
+      return res.json({
+        ok: true,
+        jobId: job.id,
+        queued: true,
+      });
+    } catch (error) {
+      try {
+        fs.rmSync(spoolDir, { recursive: true, force: true });
+      } catch {
+      }
+      return res.status(500).json({
+        ok: false,
+        error: humanizeUploadError(error, "Enterprise upload failed"),
+      });
+    }
+  });
+});
+
+global.processPendingEnterpriseUploads = schedulePendingEnterpriseJobs;
+setTimeout(() => {
+  try {
+    schedulePendingEnterpriseJobs();
+  } catch {
+  }
+}, 1000);
 
 module.exports = router;

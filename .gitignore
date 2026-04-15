@@ -135,3 +135,5 @@ android/.gradle-user-home/
 .gradle/
 **/.gradle/
 
+android/.gradle-tmp/
+*.alive
