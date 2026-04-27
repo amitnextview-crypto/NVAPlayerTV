@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
+  AppState,
   BackHandler,
   Dimensions,
   NativeEventEmitter,
@@ -33,6 +34,7 @@ import {
 } from "../services/licenseService";
 import {
   getCacheSummary,
+  clearPlaybackOverride,
   hasCachedMedia,
   pruneCacheIfLow,
   resetMediaRuntimeState,
@@ -41,7 +43,15 @@ import {
   setPrioritySection,
   syncMedia,
 } from "../services/mediaService";
+import { PlaybackController } from "../services/playbackController";
 import { findCMS, getServer, restoreServerFromStorage } from "../services/serverService";
+import { SourceManager, type SourceSnapshot } from "../services/sourceManager";
+import {
+  isUsbModuleAvailable,
+  refreshUsbState,
+  subscribeUsbState,
+} from "../services/usbManagerModule";
+import { ensureUsbMediaReadPermissions } from "../services/storagePermissionService";
 
 let socket: Socket | null = null;
 const USE_EMBEDDED_CMS = true;
@@ -72,6 +82,14 @@ const STARTUP_DEFER_MS = 2500;
 const MAX_DIAGNOSTIC_EVENTS = 24;
 const DEVICE_META_CACHE_MS = 30000;
 const TV_BACK_DOUBLE_PRESS_MS = 1300;
+const INITIAL_SOURCE_SNAPSHOT: SourceSnapshot = {
+  activeSource: "CMS_OFFLINE",
+  usbMounted: false,
+  usbHasPlayableMedia: false,
+  usbPlaylist: [],
+  usbMountPath: "",
+  usbSuppressed: false,
+};
 
 type RuntimeErrorInfo = {
   message: string;
@@ -166,6 +184,7 @@ export default function App() {
   const [licenseStatus, setLicenseStatus] = useState("Checking activation...");
   const [licenseBusy, setLicenseBusy] = useState(false);
   const [lastError, setLastError] = useState<RuntimeErrorInfo | null>(null);
+  const [sourceSnapshot, setSourceSnapshot] = useState<SourceSnapshot>(INITIAL_SOURCE_SNAPSHOT);
   const [offlineNotice, setOfflineNotice] = useState("");
   const [uploadProcessingBySection, setUploadProcessingBySection] = useState<
     Record<number, string>
@@ -230,6 +249,8 @@ export default function App() {
   });
   const lastTvBackPressAtRef = useRef(0);
   const adminOpenedByBackRef = useRef(false);
+  const sourceManagerRef = useRef(new SourceManager());
+  const playbackControllerRef = useRef(new PlaybackController());
 
   const openAdminPanel = (view: "access" | "cms", options: { openedByBack?: boolean } = {}) => {
     setAdminInitialView(view);
@@ -300,6 +321,70 @@ export default function App() {
   useEffect(() => {
     offlineNoticeRef.current = offlineNotice;
   }, [offlineNotice]);
+
+  useEffect(() => {
+    const unsubscribe = sourceManagerRef.current.subscribe((snapshot) => {
+      console.log(
+        "[USB_SOURCE]",
+        JSON.stringify({
+          activeSource: snapshot.activeSource,
+          usbMounted: snapshot.usbMounted,
+          usbHasPlayableMedia: snapshot.usbHasPlayableMedia,
+          usbMountPath: snapshot.usbMountPath,
+          usbPlaylistSize: snapshot.usbPlaylist.length,
+          usbSuppressed: snapshot.usbSuppressed,
+        })
+      );
+      setSourceSnapshot(snapshot);
+      if (snapshot.activeSource === "USB" && snapshot.usbPlaylist.length) {
+        playbackControllerRef.current.playUsbPlaylist(snapshot.usbPlaylist);
+        return;
+      }
+      playbackControllerRef.current.stopUsbPlayback();
+    });
+    return () => {
+      unsubscribe();
+      playbackControllerRef.current.stopUsbPlayback();
+      clearPlaybackOverride("usb");
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isUsbModuleAvailable()) return;
+
+    let mounted = true;
+    const applyUsbState = async () => {
+      try {
+        const permissionGranted = await ensureUsbMediaReadPermissions();
+        console.log("[USB_PERM]", permissionGranted ? "granted" : "denied");
+        if (!permissionGranted) return;
+        const state = await refreshUsbState();
+        console.log("[USB_REFRESH]", JSON.stringify(state));
+        if (!mounted) return;
+        sourceManagerRef.current.onUsbState(state);
+      } catch {
+        // ignore USB refresh errors
+      }
+    };
+
+    const unsubscribeUsb = subscribeUsbState((state) => {
+      sourceManagerRef.current.onUsbState(state);
+    });
+
+    const appStateSub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void applyUsbState();
+      }
+    });
+
+    void applyUsbState();
+
+    return () => {
+      mounted = false;
+      unsubscribeUsb();
+      appStateSub.remove();
+    };
+  }, []);
 
   const pushDiagnosticEvent = (type: string, message: string) => {
     diagnosticEventsRef.current = [
@@ -716,50 +801,53 @@ export default function App() {
     const nativeDeviceModule = (NativeModules as any)?.DeviceIdModule;
     if (!nativeDeviceModule) return;
     const emitter = new NativeEventEmitter(nativeDeviceModule);
-      const sub = emitter.addListener("embeddedCmsEvent", async (event: any) => {
-        try {
-          const type = String(event?.type || "").trim();
-          const payload = event?.payload ? JSON.parse(String(event.payload)) : {};
-          if (type === "config-updated") {
+    const sub = emitter.addListener("embeddedCmsEvent", async (event: any) => {
+      try {
+        const type = String(event?.type || "").trim();
+        const payload = event?.payload ? JSON.parse(String(event.payload)) : {};
+        if (type === "config-updated") {
+          sourceManagerRef.current.onCmsUpdate();
           const loadedConfig = await loadConfig(setConfig);
           setSectionPlaybackTimeline(normalizePlaybackTimeline(loadedConfig?.playbackTimeline));
-            lastConfigSyncAtRef.current = new Date().toISOString();
-            return;
-          }
-          if (type === "media-updated") {
-            const section = Number(payload?.section || 0);
-            await refreshPlayerMediaImmediately(section);
-            void finalizePlayerMediaRefresh(section);
-            return;
-          }
-          if (type === "device-command") {
-            const action = String(payload?.action || "").trim();
-            if (action === "force-sync" || action === "refresh-content" || action === "refresh") {
-              await refreshPlayerMediaImmediately();
-              void finalizePlayerMediaRefresh();
-              return;
-            }
-            if (action === "deep-clear-data") {
-              await clearRuntimeDeepData();
-              if (nativeDeviceModule?.restartApp) {
-                nativeDeviceModule.restartApp();
-              } else {
-                const { DevSettings } = require("react-native");
-                DevSettings.reload();
-              }
-              return;
-            }
-            if (nativeDeviceModule?.executeDeviceCommand) {
-              await nativeDeviceModule.executeDeviceCommand(
-                action,
-                JSON.stringify(payload || {})
-              );
-            }
-            return;
-          }
-        } catch {
+          lastConfigSyncAtRef.current = new Date().toISOString();
+          return;
         }
-      });
+        if (type === "media-updated") {
+          sourceManagerRef.current.onCmsUpdate();
+          const section = Number(payload?.section || 0);
+          await refreshPlayerMediaImmediately(section);
+          void finalizePlayerMediaRefresh(section);
+          return;
+        }
+        if (type === "device-command") {
+          const action = String(payload?.action || "").trim();
+          if (action === "force-sync" || action === "refresh-content" || action === "refresh") {
+            sourceManagerRef.current.onCmsUpdate();
+            await refreshPlayerMediaImmediately();
+            void finalizePlayerMediaRefresh();
+            return;
+          }
+          if (action === "deep-clear-data") {
+            await clearRuntimeDeepData();
+            if (nativeDeviceModule?.restartApp) {
+              nativeDeviceModule.restartApp();
+            } else {
+              const { DevSettings } = require("react-native");
+              DevSettings.reload();
+            }
+            return;
+          }
+          if (nativeDeviceModule?.executeDeviceCommand) {
+            await nativeDeviceModule.executeDeviceCommand(
+              action,
+              JSON.stringify(payload || {})
+            );
+          }
+          return;
+        }
+      } catch {
+      }
+    });
     return () => {
       sub.remove();
     };
@@ -1533,6 +1621,7 @@ export default function App() {
         socketUrlRef.current = url;
 
         socket.on("connect", async () => {
+          sourceManagerRef.current.setBrowserCmsActive(true);
           if (offlineNoticeRef.current) {
             setOfflineNotice("");
           }
@@ -1598,6 +1687,7 @@ export default function App() {
 
         // Media update: refresh slideshow immediately, then sync/cache in background.
         socket.on("media-updated", (payload) => {
+          sourceManagerRef.current.onCmsUpdate();
           const syncAt = Number(payload?.syncAt || 0);
           const section = Number(payload?.section || 0);
           if (section) {
@@ -1628,6 +1718,7 @@ export default function App() {
 
         // Config-only update should apply settings without restarting media playback.
         socket.on("config-updated", async () => {
+          sourceManagerRef.current.onCmsUpdate();
           const loadedConfig = await loadConfig(setConfig);
           if (loadedConfig) {
             setSectionPlaybackTimeline(normalizePlaybackTimeline(loadedConfig?.playbackTimeline));
@@ -1789,6 +1880,7 @@ export default function App() {
           }
         });
         socket.on("disconnect", (reason) => {
+          sourceManagerRef.current.setBrowserCmsActive(false);
           pushDiagnosticEvent("socket", `Disconnected: ${String(reason)}`);
           setConnectTexts(
             `Connection lost (${String(reason)}). Continuing cached playback`,
@@ -1799,6 +1891,7 @@ export default function App() {
           startDisconnectRecovery(`disconnect:${String(reason)}`);
         });
         socket.on("connect_error", (err) => {
+          sourceManagerRef.current.setBrowserCmsActive(false);
           pushDiagnosticEvent("socket", `Connect error: ${String(err?.message || "unknown")}`);
           if (ENABLE_NETWORK_RECOVERY_LOOP) checkAndRecoverNetwork();
           setConnectTexts(
@@ -2018,12 +2111,14 @@ export default function App() {
           hasTVPreferredFocus={!showAdmin}
           onOpen={() => openAdminPanel("cms")}
         />
-        <AdminButton
-          side="left"
-          icon={"\u2699"}
-          focusable={false}
-          onOpen={() => openAdminPanel("access")}
-        />
+        {sourceSnapshot.activeSource !== "USB" ? (
+          <AdminButton
+            side="left"
+            icon={"\u2699"}
+            focusable={false}
+            onOpen={() => openAdminPanel("access")}
+          />
+        ) : null}
 
         <View style={styles.connectCard}>
           <Animated.View style={[styles.loaderRing, { transform: [{ rotate: ringSpin }] }]}>
@@ -2058,6 +2153,21 @@ export default function App() {
     slideDuration: 5,
     sections: [{ sourceType: "multimedia" }],
   };
+  const effectiveConfig =
+    sourceSnapshot.activeSource === "USB"
+      ? playbackControllerRef.current.buildUsbConfig(safeConfig)
+      : safeConfig;
+  const playbackSourceVersion =
+    sourceSnapshot.activeSource === "USB"
+      ? [
+          sourceSnapshot.activeSource,
+          sourceSnapshot.usbMountPath,
+          sourceSnapshot.usbPlaylist.length,
+          sourceSnapshot.usbPlaylist
+            .map((item) => `${item?.url || item?.name || ""}:${Number(item?.mtimeMs || 0)}`)
+            .join("|"),
+        ].join("::")
+      : sourceSnapshot.activeSource;
 
   const handlePlaybackChange = (payload: any) => {
     const section = Number(payload?.section || 0);
@@ -2136,7 +2246,7 @@ export default function App() {
   };
 
   const { width, height } = Dimensions.get("window");
-  const orientation = safeConfig.orientation;
+  const orientation = effectiveConfig.orientation;
 
   let rotation = "0deg";
   let containerWidth = width;
@@ -2172,11 +2282,12 @@ export default function App() {
       >
         <PlayerErrorBoundary onError={(error) => reportRuntimeError(String(error?.message || error), "", "boundary")}>
           <PlayerScreen
-            config={safeConfig}
+            config={effectiveConfig}
             mediaVersion={mediaVersion}
             sectionMediaVersion={sectionMediaVersion}
             playlistSyncAt={playlistSyncAt}
             contentResetVersion={contentResetVersion}
+            playbackSourceVersion={playbackSourceVersion}
             sectionPlaybackTimeline={sectionPlaybackTimeline}
             uploadProcessingBySection={uploadProcessingBySection}
             uploadCountsBySection={uploadCountsBySection}
@@ -2190,12 +2301,14 @@ export default function App() {
           hasTVPreferredFocus={!showAdmin}
           onOpen={() => openAdminPanel("cms")}
         />
-        <AdminButton
-          side="left"
-          icon={"\u2699"}
-          focusable={false}
-          onOpen={() => openAdminPanel("access")}
-        />
+        {sourceSnapshot.activeSource !== "USB" ? (
+          <AdminButton
+            side="left"
+            icon={"\u2699"}
+            focusable={false}
+            onOpen={() => openAdminPanel("access")}
+          />
+        ) : null}
         <AdminCmsPanel
           visible={showAdmin}
           view={adminInitialView}

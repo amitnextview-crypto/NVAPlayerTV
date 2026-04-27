@@ -16,6 +16,7 @@ public class DeviceIdPackage implements ReactPackage {
 
         List<NativeModule> modules = new ArrayList<>();
         modules.add(new DeviceIdModule(reactContext));
+        modules.add(new UsbManagerModule(reactContext));
         return modules;
     }
 

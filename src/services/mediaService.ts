@@ -110,7 +110,7 @@ function markCachedProgress(path: string, totalBytes = 0) {
 // Short grace period avoids deleting files that might still be in active playback pipeline.
 const CACHE_RETENTION_MS = 2 * 60 * 1000;
 
-type MediaItem = {
+export type MediaItem = {
   name?: string;
   originalName?: string;
   section?: number;
@@ -123,6 +123,12 @@ type MediaItem = {
   hash?: string;
   remoteUrl?: string;
   localPath?: string;
+};
+
+type PlaybackOverride = {
+  sourceId: string;
+  items: MediaItem[];
+  activatedAt: number;
 };
 
 type ManifestEntry = {
@@ -149,6 +155,7 @@ let lastBackoffLogAtMs = 0;
 const lastMediaLogAtBySection: Record<number, number> = {};
 const lastMediaLogKeyBySection: Record<number, string> = {};
 let cacheSummaryCache = { at: 0, total: 0, cached: 0, percent: 0 };
+let playbackOverride: PlaybackOverride | null = null;
 
 function getListBackoffDelayMs(): number {
   const exp = Math.min(listBackoffFailCount, 6);
@@ -168,6 +175,7 @@ export function setNonPriorityThrottleMs(ms: number) {
 }
 
 export async function resetMediaRuntimeState(options: { clearListCache?: boolean } = {}) {
+  playbackOverride = null;
   memoryListCache = [];
   memoryListCacheAtMs = 0;
   inFlightListRefresh = null;
@@ -317,6 +325,33 @@ function localPathFor(remoteUrl: string, section: number, name: string): string 
   const encoded = hashString(remoteUrl);
   const fileName = safeName(`${section}_${encoded}_${name}`);
   return `${MEDIA_ROOT}/${fileName}`;
+}
+
+export function setPlaybackOverride(sourceId: string, items: MediaItem[]) {
+  const safeItems = Array.isArray(items)
+    ? items
+        .filter((item) => !!item && typeof item === "object")
+        .map((item) => ({
+          ...item,
+          section: 1,
+        }))
+    : [];
+
+  playbackOverride = {
+    sourceId: String(sourceId || "runtime"),
+    items: safeItems,
+    activatedAt: Date.now(),
+  };
+}
+
+export function clearPlaybackOverride(sourceId?: string) {
+  if (!playbackOverride) return;
+  if (sourceId && playbackOverride.sourceId !== sourceId) return;
+  playbackOverride = null;
+}
+
+export function getPlaybackOverride() {
+  return playbackOverride;
 }
 
 function tempDownloadPathFor(targetPath: string): string {
@@ -1085,6 +1120,11 @@ export async function syncMedia(
 
 export async function getMediaFiles(sectionIndex = 0) {
   const sectionNo = sectionIndex + 1;
+
+  if (playbackOverride) {
+    if (sectionNo !== 1) return [];
+    return playbackOverride.items;
+  }
 
   try {
     const mapped = await refreshPlayableList();

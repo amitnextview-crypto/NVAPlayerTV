@@ -86,6 +86,17 @@ function normalizeMediaUri(value: string) {
   return uri;
 }
 
+function isLocalPlayableUri(value: string) {
+  return /^(file|content):\/\//i.test(String(value || "").trim());
+}
+
+function isUsbSourceItem(item: any) {
+  return (
+    String(item?.sourceId || "").toLowerCase() === "usb" ||
+    /^usb:\/\//i.test(String(item?.url || ""))
+  );
+}
+
 function buildRemoteMediaUri(server: string, pathValue: string, versionHint?: string | number) {
   const base = normalizeMediaUri(`${String(server || "").trim()}${String(pathValue || "").trim()}`);
   if (!base) return "";
@@ -451,6 +462,7 @@ export default function SlideRenderer({
   const sectionConfig = config?.sections?.[sectionIndex] || {};
   const sourceType = sectionConfig?.sourceType || SOURCE_TYPES.multimedia;
   const sourceUrl = sectionConfig?.sourceUrl || "";
+  const mediaResizeMode = sectionConfig?.usbFitMode || "stretch";
   const isMultiPaneLayout = config?.layout === "grid2" || config?.layout === "grid3";
   const mediaRotateLayerStyle = styles.fillLayer;
 
@@ -686,7 +698,8 @@ export default function SlideRenderer({
 
     if (
       isActiveVideo &&
-      /^file:\/\//i.test(uri) &&
+      isLocalPlayableUri(uri) &&
+      !isUsbSourceItem(activeFile) &&
       server &&
       activeFile?.url
     ) {
@@ -812,8 +825,8 @@ export default function SlideRenderer({
     const isVideo = isVideoFile(file);
     const isLargeVideo = isVideo && fileSize > LARGE_VIDEO_STREAM_THRESHOLD_BYTES;
     const localPlayableUri = normalizeMediaUri(String(file?.remoteUrl || ""));
-    const hasLocalPlayableUri = /^file:\/\//i.test(localPlayableUri);
-    const preferStreaming = shouldPreferStreamingForVideo(file, server);
+    const hasLocalPlayableUri = isLocalPlayableUri(localPlayableUri);
+    const preferStreaming = !isUsbSourceItem(file) && shouldPreferStreamingForVideo(file, server);
     const holdForCache =
       HOLD_LARGE_VIDEO_UNTIL_CACHED &&
       isLargeVideo &&
@@ -828,12 +841,12 @@ export default function SlideRenderer({
       nextUri = localPlayableUri;
     } else if (preferStreaming && server && file?.url) {
       nextUri = buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion);
-    } else if (server && file?.url) {
+    } else if (!isUsbSourceItem(file) && server && file?.url) {
       nextUri = buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion);
     } else if (file.remoteUrl) {
       nextUri = !preferStreaming && isListFullyCached
         ? localPlayableUri
-        : (server && file?.url
+        : (!isUsbSourceItem(file) && server && file?.url
           ? buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion)
           : localPlayableUri);
     }
@@ -842,10 +855,10 @@ export default function SlideRenderer({
       if (file?.remoteUrl) {
         nextUri = !preferStreaming && isListFullyCached
           ? normalizeMediaUri(String(file.remoteUrl || ""))
-          : (server && file?.url
+          : (!isUsbSourceItem(file) && server && file?.url
             ? buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion)
             : normalizeMediaUri(String(file.remoteUrl || "")));
-      } else if (server && file?.url) {
+      } else if (!isUsbSourceItem(file) && server && file?.url) {
         nextUri = buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion);
       }
     }
@@ -853,7 +866,7 @@ export default function SlideRenderer({
     // Two-phase switch: once full list is cached, prefer local and never fall back to remote.
     if (isListFullyCached && !preferStreaming && !isVideo) {
       const localUri = normalizeMediaUri(String(file?.remoteUrl || ""));
-      if (/^file:\/\//i.test(localUri)) {
+      if (isLocalPlayableUri(localUri)) {
         nextUri = localUri;
       } else {
         nextUri = "";
@@ -862,14 +875,14 @@ export default function SlideRenderer({
 
     const pinned = pinnedMediaUriRef.current;
     const hasLocalPlayableForNext =
-      /^file:\/\//i.test(normalizeMediaUri(String(file?.remoteUrl || ""))) ||
-      /^file:\/\//i.test(nextUri);
+      isLocalPlayableUri(normalizeMediaUri(String(file?.remoteUrl || ""))) ||
+      isLocalPlayableUri(nextUri);
     if (
       isVideo &&
       pinned &&
       pinned.identity === identity &&
       /^https?:\/\//i.test(pinned.uri) &&
-      /^file:\/\//i.test(nextUri) &&
+      isLocalPlayableUri(nextUri) &&
       !hasLocalPlayableForNext
     ) {
       // Avoid switching from remote to local mid-playback (causes pause on some TVs).
@@ -896,7 +909,7 @@ export default function SlideRenderer({
       nextUri &&
       nextUri !== uri &&
       /^https?:\/\//i.test(uri) &&
-      /^file:\/\//i.test(nextUri)
+      isLocalPlayableUri(nextUri)
     ) {
       // Keep the active stream stable; switch to local on the next video load only.
       return;
@@ -1024,8 +1037,8 @@ export default function SlideRenderer({
     const buildPlayableUri = (entry: any, fallback = "") => {
       if (!entry) return fallback;
       const localUri = normalizeMediaUri(String(entry?.remoteUrl || ""));
-      if (/^file:\/\//i.test(localUri)) return localUri;
-      if (server && entry?.url) {
+      if (isLocalPlayableUri(localUri)) return localUri;
+      if (!isUsbSourceItem(entry) && server && entry?.url) {
         return buildRemoteMediaUri(server, entry.url, entry?.mtimeMs || mediaVersion);
       }
       return localUri || fallback;
@@ -1196,9 +1209,9 @@ export default function SlideRenderer({
             );
             if (activeItem) {
               const localUri = normalizeMediaUri(String(activeItem?.remoteUrl || ""));
-              if (/^file:\/\//i.test(localUri) && localUri !== uri) {
+              if (isLocalPlayableUri(localUri) && localUri !== uri) {
                 const localPath = localUri.replace(/^file:\/\//i, "");
-                const exists = await RNFS.exists(localPath);
+                const exists = /^file:\/\//i.test(localUri) ? await RNFS.exists(localPath) : true;
                 if (exists) {
                   if (isVideoFile(activeItem)) {
                     // Do not swap the current video source mid-run when cache finishes.
@@ -1239,7 +1252,7 @@ export default function SlideRenderer({
     if (!isVideo) return;
 
     const localPlayableUri = normalizeMediaUri(String(file?.remoteUrl || ""));
-    const hasLocalPlayableUri = /^file:\/\//i.test(localPlayableUri);
+    const hasLocalPlayableUri = isLocalPlayableUri(localPlayableUri);
     const usingRemote = /^https?:\/\//i.test(uri);
 
     if (!hasLocalPlayableUri || !usingRemote) return;
@@ -1270,7 +1283,7 @@ export default function SlideRenderer({
       const pathKey = String(entry?.url || "");
       const progress = pathKey ? Number(cacheProgressByPath[pathKey] || 0) : 0;
       const hasLocalPath = !!String(entry?.localPath || "").trim();
-      const hasLocalUri = /^file:\/\//i.test(String(entry?.remoteUrl || ""));
+      const hasLocalUri = isLocalPlayableUri(String(entry?.remoteUrl || ""));
       return hasLocalPath || hasLocalUri || progress >= 100;
     });
     if (!allFilesCached) return;
@@ -1283,7 +1296,7 @@ export default function SlideRenderer({
     const file = files[index];
     if (!file || !isVideoFile(file)) return;
     const localPlayableUri = normalizeMediaUri(String(file?.remoteUrl || ""));
-    const hasLocalPlayableUri = /^file:\/\//i.test(localPlayableUri);
+    const hasLocalPlayableUri = isLocalPlayableUri(localPlayableUri);
     const usingRemote = /^https?:\/\//i.test(uri);
     if (hasLocalPlayableUri && usingRemote) return;
   }, [files, index, uri, sourceType]);
@@ -1639,12 +1652,12 @@ export default function SlideRenderer({
   const currentFileSize = Number(currentFile?.size || 0);
   const currentIsVideo = isVideoFile(currentFile);
   const currentLocalPlayableUri = normalizeMediaUri(String(currentFile?.remoteUrl || ""));
-  const currentHasLocalPlayableUri = /^file:\/\//i.test(currentLocalPlayableUri);
+  const currentHasLocalPlayableUri = isLocalPlayableUri(currentLocalPlayableUri);
   const emergencyVideoUri =
     currentFile && currentIsVideo
       ? lastGoodUriByIdentityRef.current[getMediaContentIdentity(currentFile)] ||
         lastGoodAnyUriRef.current ||
-        ((server && currentFile?.url)
+        ((!isUsbSourceItem(currentFile) && server && currentFile?.url)
           ? buildRemoteMediaUri(server, currentFile.url, currentFile?.mtimeMs || mediaVersion)
           : currentLocalPlayableUri || "")
       : "";
@@ -1877,7 +1890,7 @@ export default function SlideRenderer({
     const active = files[index];
     if (!active) return;
     const localPlayableUri = normalizeMediaUri(String(active?.remoteUrl || ""));
-    const isCached = /^file:\/\//i.test(uri);
+    const isCached = isLocalPlayableUri(uri);
     const cacheEligibleFiles = files.filter((entry) => isCacheEligible(entry));
     const allFilesCached =
       cacheEligibleFiles.length > 0 &&
@@ -1885,7 +1898,7 @@ export default function SlideRenderer({
       const pathKey = String(entry?.url || "");
       const progress = pathKey ? Number(cacheProgressByPath[pathKey] || 0) : 0;
       const hasLocalPath = !!String(entry?.localPath || "").trim();
-      const entryHasLocalUri = /^file:\/\//i.test(String(entry?.remoteUrl || ""));
+      const entryHasLocalUri = isLocalPlayableUri(String(entry?.remoteUrl || ""));
       return hasLocalPath || entryHasLocalUri || progress >= 100;
     });
     const cacheStatus = !uri
@@ -2168,14 +2181,14 @@ export default function SlideRenderer({
   const uploadDone = Number(processingCount?.uploaded || 0);
   const showProcessingOverlay =
     !!String(processingMessage || "").trim() || (uploadTotal > 0 && uploadDone >= 0);
-  const isCached = /^file:\/\//i.test(uri);
+  const isCached = isLocalPlayableUri(uri);
   const hasLocalFile = !!String(file?.localPath || "").trim();
   const currentPathKey = String(file?.url || "");
   const currentCacheProgress = currentPathKey ? Number(cacheProgressByPath[currentPathKey] || 0) : 0;
   const isMarkedCached =
     isCached ||
     hasLocalFile ||
-    /^file:\/\//i.test(String(file?.remoteUrl || "")) ||
+    isLocalPlayableUri(String(file?.remoteUrl || "")) ||
     currentCacheProgress >= 100;
   const totalFiles = files.length;
   const cacheEligibleFiles = files.filter((entry) => isCacheEligible(entry));
@@ -2185,7 +2198,7 @@ export default function SlideRenderer({
         const pathKey = String(entry?.url || "");
         const progress = pathKey ? Number(cacheProgressByPath[pathKey] || 0) : 0;
         const hasLocalPath = !!String(entry?.localPath || "").trim();
-        const hasLocalUri = /^file:\/\//i.test(String(entry?.remoteUrl || ""));
+        const hasLocalUri = isLocalPlayableUri(String(entry?.remoteUrl || ""));
         const cached = hasLocalPath || hasLocalUri || progress >= 100;
         return cached ? count + 1 : count;
       }, 0)
@@ -2196,7 +2209,7 @@ export default function SlideRenderer({
         const pathKey = String(entry?.url || "");
         const progress = pathKey ? Number(cacheProgressByPath[pathKey] || 0) : 0;
         const hasLocalPath = !!String(entry?.localPath || "").trim();
-        const hasLocalUri = /^file:\/\//i.test(String(entry?.remoteUrl || ""));
+        const hasLocalUri = isLocalPlayableUri(String(entry?.remoteUrl || ""));
         const cached = hasLocalPath || hasLocalUri || progress >= 100;
         return sum + (cached ? 100 : Math.max(0, Math.min(100, progress)));
       }, 0) / cacheEligibleTotal
@@ -2216,6 +2229,7 @@ export default function SlideRenderer({
     cacheStatus === "Streaming" && streamingCount > 0 && aggregateProgress > 0 && aggregateProgress < 100;
   const bufferingReason = (() => {
     if (!currentFile || sourceType !== SOURCE_TYPES.multimedia) return "";
+    if (isUsbSourceItem(currentFile)) return "Playing from USB.";
     if (!server) return "CMS is offline — network unavailable.";
     if (cacheStatus === "Streaming") return "Internet is slow — video is buffering.";
     if (!uri) return "Video source is not loading.";
@@ -2226,7 +2240,7 @@ export default function SlideRenderer({
       ? uri ||
         emergencyVideoUri ||
         normalizeMediaUri(String(file?.remoteUrl || "")) ||
-        (server && file?.url
+        (!isUsbSourceItem(file) && server && file?.url
           ? buildRemoteMediaUri(server, file.url, file?.mtimeMs || mediaVersion)
           : "")
       : "";
@@ -2326,7 +2340,7 @@ export default function SlideRenderer({
               rotation={0}
               muted={false}
               startPositionMs={resumePositionMs}
-              resizeMode="stretch"
+              resizeMode={mediaResizeMode}
               repeat={files.length === 1 && !forceLocalRestart}
               onEnd={() => {
                 videoProgressRef.current = { positionMs: 0, durationMs: 0 };
@@ -2336,7 +2350,7 @@ export default function SlideRenderer({
                 });
                 if (forceLocalRestart) {
                   const localPlayableUri = normalizeMediaUri(String(file?.remoteUrl || ""));
-                  if (/^file:\/\//i.test(localPlayableUri)) {
+                  if (isLocalPlayableUri(localPlayableUri)) {
                     prepareVideoReloadFromCurrentPosition();
                     pinnedMediaUriRef.current = {
                       identity: getMediaIdentity(file),
@@ -2355,7 +2369,7 @@ export default function SlideRenderer({
                     const pathKey = String(nextFile?.url || "");
                     const progress = pathKey ? Number(cacheProgressByPath[pathKey] || 0) : 0;
                     const hasLocalPath = !!String(nextFile?.localPath || "").trim();
-                    const hasLocalUri = /^file:\/\//i.test(String(nextFile?.remoteUrl || ""));
+                    const hasLocalUri = isLocalPlayableUri(String(nextFile?.remoteUrl || ""));
                     const hasLocal = hasLocalPath || hasLocalUri || progress >= 100;
                     if (!hasLocal && progress < 5 && videoGateLoopRef.current < 2) {
                       videoGateLoopRef.current += 1;
@@ -2453,9 +2467,9 @@ export default function SlideRenderer({
               onBuffering={(event) => {
                 const buffering = !!event?.nativeEvent?.buffering;
                 const localUri = normalizeMediaUri(String(file?.remoteUrl || ""));
-                const hasLocalPlayable = /^file:\/\//i.test(localUri) || /^file:\/\//i.test(uri);
+                const hasLocalPlayable = isLocalPlayableUri(localUri) || isLocalPlayableUri(uri);
                 if (hasLocalPlayable) {
-                  if (buffering && /^https?:\/\//i.test(String(uri || "")) && /^file:\/\//i.test(localUri)) {
+                  if (buffering && /^https?:\/\//i.test(String(uri || "")) && isLocalPlayableUri(localUri)) {
                     // Never swap the active source during buffering. Use cached/local on next load only.
                     setForceLocalRestart(false);
                   }
@@ -2581,7 +2595,7 @@ export default function SlideRenderer({
                 styles.imageTrackItem,
                 styles.imageTrackCurrent,
               ]}
-              resizeMode="stretch"
+              resizeMode={mediaResizeMode}
               fadeDuration={0}
               onError={handleRenderError}
             />
@@ -2598,7 +2612,7 @@ export default function SlideRenderer({
                   ? { top: slideDistanceY }
                   : { top: -slideDistanceY },
               ]}
-              resizeMode="stretch"
+              resizeMode={mediaResizeMode}
               fadeDuration={0}
               onLoad={() => handleImageLoadEnd(nextImageSlot)}
               onError={handleRenderError}
@@ -2615,7 +2629,7 @@ export default function SlideRenderer({
                 styles.imageLayer,
                 imageVisibleSlot === "a" ? styles.imageVisible : styles.imageHidden,
               ]}
-              resizeMode="stretch"
+              resizeMode={mediaResizeMode}
               fadeDuration={0}
               onLoad={() => handleImageLoadEnd("a")}
               onError={handleRenderError}
@@ -2629,7 +2643,7 @@ export default function SlideRenderer({
                 styles.imageLayer,
                 imageVisibleSlot === "b" ? styles.imageVisible : styles.imageHidden,
               ]}
-              resizeMode="stretch"
+              resizeMode={mediaResizeMode}
               fadeDuration={0}
               onLoad={() => handleImageLoadEnd("b")}
               onError={handleRenderError}

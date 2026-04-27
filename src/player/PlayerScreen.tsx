@@ -53,6 +53,7 @@ export default function PlayerScreen({
   sectionMediaVersion,
   playlistSyncAt,
   contentResetVersion,
+  playbackSourceVersion,
   sectionPlaybackTimeline,
   uploadProcessingBySection,
   uploadCountsBySection,
@@ -60,7 +61,7 @@ export default function PlayerScreen({
   onPlaybackError,
 }: any) {
   const [scheduleOn, setScheduleOn] = useState(true);
-  const rendererEpoch = `${Number(mediaVersion || 0)}-${Number(contentResetVersion || 0)}-${Number(playlistSyncAt || 0)}`;
+  const rendererEpoch = `${Number(mediaVersion || 0)}-${Number(contentResetVersion || 0)}-${Number(playlistSyncAt || 0)}-${String(playbackSourceVersion || "default")}`;
   const getSectionKey = (sectionIndex: number) => {
     const timeline = sectionPlaybackTimeline?.[sectionIndex + 1] || null;
     const cycle = String(timeline?.cycleId || timeline?.syncAt || "none");
