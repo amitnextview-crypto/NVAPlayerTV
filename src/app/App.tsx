@@ -93,6 +93,7 @@ const STARTUP_DEFER_MS = 2500;
 const MAX_DIAGNOSTIC_EVENTS = 24;
 const DEVICE_META_CACHE_MS = 30000;
 const TV_BACK_DOUBLE_PRESS_MS = 1300;
+const QR_BACK_AUTO_CLOSE_MS = 15000;
 const INITIAL_SOURCE_SNAPSHOT: SourceSnapshot = {
   activeSource: "CMS_OFFLINE",
   usbMounted: false,
@@ -330,6 +331,17 @@ export default function App() {
     const subscription = BackHandler.addEventListener("hardwareBackPress", handleTvBackAction);
     return () => subscription.remove();
   }, [handleTvBackAction]);
+
+  useEffect(() => {
+    if (!showAdmin || adminInitialView !== "access" || !adminOpenedByBackRef.current) return;
+    const timer = setTimeout(() => {
+      if (!adminOpenedByBackRef.current) return;
+      setShowAdmin(false);
+      adminOpenedByBackRef.current = false;
+      lastTvBackPressAtRef.current = 0;
+    }, QR_BACK_AUTO_CLOSE_MS);
+    return () => clearTimeout(timer);
+  }, [adminInitialView, showAdmin]);
 
   useEffect(() => {
     const nativeDeviceModule = (NativeModules as any)?.DeviceIdModule;

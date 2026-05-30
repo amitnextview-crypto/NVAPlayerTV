@@ -12,6 +12,7 @@ import CmsAccessCard from "./CmsAccessCard";
 import {
   getCmsAccessInfo,
   pickMediaFilesForSection,
+  setAutoReopenEnabled,
   startEmbeddedCmsServer,
   uploadPickedMediaFiles,
 } from "../services/embeddedCmsService";
@@ -88,6 +89,7 @@ export default function AdminCmsPanel({
 
   const handleNativePick = async (section: number) => {
     try {
+      setAutoReopenEnabled(false);
       const result: any = await pickMediaFilesForSection(section);
       postWebEvent("TV_PICK_COMPLETE", {
         section,

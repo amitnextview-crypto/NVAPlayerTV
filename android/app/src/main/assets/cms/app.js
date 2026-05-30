@@ -4488,6 +4488,7 @@ function triggerTvSectionPick(section) {
     showNotice("warning", "TV Picker Unavailable", "Native TV file picker is available only inside the TV app.", 5000);
     return;
   }
+  setAutoReopen(false).catch(() => {});
   window.ReactNativeWebView.postMessage(JSON.stringify({
     type: "TV_PICK_SECTION",
     section: Number(section || 1),
@@ -5330,4 +5331,13 @@ window.editSectionTemplate = editSectionTemplate;
     if (!(target instanceof HTMLElement)) return;
     keepTvFocusVisible(target);
   });
+
+  if (IS_TV_COMPACT_MODE) {
+    document.addEventListener("wheel", (event) => {
+      const target = event.target instanceof HTMLElement ? event.target : document.body;
+      const pane = getTvScrollablePane(target) || document.querySelector(".container");
+      if (!pane) return;
+      if (performTvScroll(pane, event.deltaY)) event.preventDefault();
+    }, { passive: false });
+  }
 });

@@ -2457,7 +2457,8 @@ body.tv-compact-mode .main-grid {
   gap: 10px;
   flex: 1 1 auto;
   min-height: 0;
-  height: calc(var(--tvvh) - 88px);
+  height: auto;
+  align-items: start;
 }
 
 body.tv-compact-mode {
@@ -2467,10 +2468,13 @@ body.tv-compact-mode {
 body.tv-compact-mode .container {
   height: var(--tvvh);
   min-height: var(--tvvh);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   padding-bottom: 0;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 body.tv-compact-mode .hero {
@@ -2480,11 +2484,10 @@ body.tv-compact-mode .hero {
 body.tv-compact-mode .left-col,
 body.tv-compact-mode .middle-col,
 body.tv-compact-mode .right-col {
-  overflow-y: auto;
+  height: auto;
+  overflow: visible;
   min-height: 0;
   padding-bottom: 20px;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
 }
 
 body.tv-compact-mode .tv-upload-stack {
@@ -2619,7 +2622,7 @@ body.tv-compact-mode.tv-screen-landscape .main-grid {
 body.tv-compact-mode.player-orientation-vertical .main-grid,
 body.tv-compact-mode.player-orientation-reverse-vertical .main-grid {
   grid-template-columns: 1fr;
-  height: calc(var(--tvvh) - 88px);
+  height: auto;
 }
 
 body.tv-compact-mode.player-orientation-vertical .left-col,
@@ -2628,9 +2631,8 @@ body.tv-compact-mode.player-orientation-vertical .right-col,
 body.tv-compact-mode.player-orientation-reverse-vertical .left-col,
 body.tv-compact-mode.player-orientation-reverse-vertical .middle-col,
 body.tv-compact-mode.player-orientation-reverse-vertical .right-col {
-  height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
+  height: auto;
+  overflow: visible;
   padding-right: 0;
 }
 
