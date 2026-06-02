@@ -1,97 +1,262 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# NVA SignagePlayerTV
 
-# Getting Started
+Android TV signage player app jisme TV khud local CMS host kar sakta hai, QR se CMS open hota hai, media upload hota hai, aur screen par layout ke hisab se image/video/web/YouTube/template content play hota hai.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## 1. User Guide: App Active Karna, Permission Allow Karna, Aur Complete Workflow
 
-## Step 1: Start Metro
+### App ko active/use karne ke tareike
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+Is app ko mainly in tareeko se use kiya ja sakta hai:
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+1. **TV-hosted CMS via QR**
+   - App TV par install/open karein.
+   - Remote ka **Back** button press karne par QR Access page open hota hai.
+   - QR scan karke phone/laptop browser me CMS open karein.
+   - TV par hi CMS panel open karna ho to QR page par **Open CMS** select karke remote ka **OK** press karein.
+   - Back se khula QR page 15 second me auto-close ho jata hai.
 
-```sh
-# Using npm
-npm start
+2. **TV-side CMS with remote**
+   - Remote se CMS panel navigate kiya ja sakta hai.
+   - Arrow keys focus move karti hain.
+   - OK button selected control press karta hai.
+   - S1, S2, S3 buttons section-wise file picker open karte hain.
+   - S1/S2/S3 file picker open hone se pehle auto-reopen OFF ho jata hai, taaki upload/picker ke time app force reopen na ho.
 
-# OR using Yarn
-yarn start
-```
+3. **TV-side CMS with mouse**
+   - CMS panel mouse se bhi use ho sakta hai.
+   - TV compact CMS page me parent container par scroll enabled hai, isliye mouse wheel se page scroll karke settings, upload aur save controls tak easily pahucha ja sakta hai.
 
-## Step 2: Build and run your app
+4. **USB playback**
+   - USB drive TV me insert karne par app USB media detect kar sakta hai.
+   - USB source available hone par playback policy USB content ko priority de sakti hai.
+   - USB remove hone par app CMS/cached playback par wapas aa sakta hai.
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+5. **Cached/offline playback**
+   - CMS se sync kiya gaya media local cache me store hota hai.
+   - Network/CMS unavailable hone par app cached media play kar sakta hai.
 
-### Android
+6. **Auto-start / auto-reopen mode**
+   - App boot ke baad reopen/start ho sakta hai.
+   - CMS me Reopen ON/OFF controls available hain.
+   - Upload/file picker ke time auto-reopen OFF rakhna useful hai, warna Android picker ke upar app wapas aa sakta hai.
 
-```sh
-# Using npm
-npm run android
+### Permission allow workflow
 
-# OR using Yarn
-yarn android
-```
+Fresh install ke baad ye permissions allow karna important hai:
 
-### iOS
+1. **Storage / media permission**
+   - Images/videos read karne ke liye required.
+   - USB/media import aur local playback cache ke liye useful.
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+2. **Manage All Files permission**
+   - Android TV me external storage/USB media access reliable banane ke liye required ho sakta hai.
+   - App prompt kare to Settings me jaakar allow karein.
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+3. **Display over other apps / overlay permission**
+   - Auto-reopen/kiosk style behavior me help karta hai.
+   - App prompt kare to overlay permission enable karein.
 
-```sh
-bundle install
-```
+4. **Install unknown apps permission**
+   - CMS se APK update/install flow use karna ho to required.
 
-Then, and every time you update your native dependencies, run:
+5. **Network/Wi-Fi permissions**
+   - Local CMS host karne, QR URL reachable banane, device discovery, aur socket/API communication ke liye used.
 
-```sh
-bundle exec pod install
-```
+6. **Boot/keep-alive related permissions**
+   - TV restart ke baad app reopen/start karne ke liye manifest me boot receiver aur foreground service configured hain.
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+### Normal content upload workflow
 
-```sh
-# Using npm
-npm run ios
+1. TV aur phone/laptop ko same network par rakhein.
+2. App TV par open karein.
+3. Remote **Back** press karke QR page open karein.
+4. QR scan karke CMS browser me open karein, ya TV par **Open CMS** press karein.
+5. CMS me device select karein. TV-hosted compact CMS me current TV auto-selected hota hai.
+6. Layout choose karein:
+   - Fullscreen
+   - 2-section layout
+   - 3-section grid layout
+7. Har section ka source choose karein:
+   - Multimedia image/video
+   - Website URL
+   - YouTube URL
+   - Ready Template
+8. Multimedia ke liye files upload karein:
+   - Browser CMS me file input/upload button use karein.
+   - TV-side CMS me S1/S2/S3 press karein, files choose karein, upload auto-start hoga.
+9. Ticker, timing, direction, colors, schedule, cache settings adjust karein.
+10. Save/apply config karein.
+11. Player screen updated content play karegi.
 
-# OR using Yarn
-yarn ios
-```
+### Remote control behavior
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+- **Back**: QR Access page open karta hai. Double-back style flow se CMS open behavior bhi supported hai.
+- **OK / DPAD Center**: focused button/input select karta hai.
+- **Arrow keys**: TV CMS me focus move aur scroll behavior manage karti hain.
+- **Long OK**: native side me auto-reopen toggle behavior configured hai.
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+## 2. Technical Details: Is Project Me Kya Use Hua Hai Aur Kaise Kaam Karta Hai
 
-## Step 3: Modify your app
+### Main stack
 
-Now that you have successfully run the app, let's make changes!
+- **React Native 0.83.1**: main app UI aur player logic.
+- **React 19.2.0**: component model.
+- **TypeScript**: app source mostly `src/` me.
+- **Android native Kotlin/Java**: TV remote keys, embedded CMS server, USB/media access, boot receiver, auto-reopen, native file picker, native video player.
+- **react-native-video**: media playback.
+- **react-native-webview**: TV ke andar CMS panel render karne ke liye.
+- **react-native-fs**: local file/cache operations.
+- **AsyncStorage**: saved state/config markers.
+- **socket.io / socket.io-client**: external PC CMS/device communication paths.
+- **Express/CORS server folder**: PC-side CMS/server support.
+- **Jest**: unit tests.
+- **Gradle Android build**: APK build/package.
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+### Important folders/files
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+- `src/app/App.tsx`
+  - Main app controller.
+  - CMS connection, QR/admin panel open/close, BackHandler, source policy, socket events, permission flow, embedded CMS startup, playback lifecycle.
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+- `src/admin/AdminCmsPanel.tsx`
+  - TV overlay panel.
+  - QR Access view aur TV CMS WebView host karta hai.
+  - TV native file picker bridge handle karta hai.
 
-## Congratulations! :tada:
+- `src/admin/CmsAccessCard.tsx`
+  - QR, IP, local CMS URL aur Open CMS button UI.
 
-You've successfully run and modified your React Native App. :partying_face:
+- `src/player/`
+  - Player rendering, slide layout, media stage, backdrop, templates, video state.
 
-### Now what?
+- `src/services/`
+  - Config load, media sync/cache, source policy, USB state, embedded CMS bridge, permissions, server discovery.
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+- `android/app/src/main/java/com/signageplayertv/`
+  - `MainActivity.kt`: TV remote key events, auto-reopen controls.
+  - `DeviceIdModule.java`: React Native native module; device info, permissions, auto-reopen, file picker/upload bridge.
+  - `EmbeddedCmsServer.java`: TV ke andar HTTP CMS/API server.
+  - `EmbeddedCmsRuntime.java`: embedded CMS runtime/status/QR info.
+  - `BootReceiver.java`: boot ke baad app/service start.
+  - `KioskKeepAliveService.kt`: keep-alive foreground service.
+  - `UsbManagerModule.java` and `UsbWakeReceiver.java`: USB events/media handling.
+  - `NativeVideoPlayerView.java`: native video view integration.
 
-# Troubleshooting
+- `android/app/src/main/assets/cms/`
+  - TV-hosted CMS static files.
+  - `index.html`: CMS HTML layout.
+  - `style.css`: CMS UI styling, TV compact mode, scroll/focus layout.
+  - `app.js`: CMS logic, upload, device selection, preview, templates, TV native bridge.
+  - `enterprise.js`: enterprise/group/device management helpers.
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+- `android/app/src/main/res/`
+  - Android resources, launcher icons/background, layouts, styles.
 
-# Learn More
+- `server/`
+  - PC CMS/server implementation and installer support.
 
-To learn more about React Native, take a look at the following resources:
+### Runtime flow
 
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+1. App start hota hai aur `App.tsx` embedded CMS server initialize karta hai.
+2. Native `EmbeddedCmsServer` TV par local HTTP server chalata hai.
+3. `EmbeddedCmsRuntime` local URL, public URL/IP aur QR data provide karta hai.
+4. QR page user ko CMS URL deta hai.
+5. CMS browser/TV WebView se API calls embedded server ko jaati hain.
+6. Upload media TV ke local storage/cache me save hota hai.
+7. Config save hone par React Native player new config/media list load karta hai.
+8. Player layout ke hisab se sections render karta hai.
+9. USB, CMS online, CMS offline/cached source priority `sourcePolicy`/source manager logic se decide hoti hai.
+10. Auto-reopen/boot receiver app ko kiosk-style TV use case ke liye alive rakhte hain.
+
+## 3. Future Changes Notes: Kahan Change Karna Hai Aur Dhyan Rakhne Wali Baatein
+
+### Common changes ka map
+
+- **QR page / admin overlay behavior change karna ho**
+  - `src/app/App.tsx`
+  - `src/admin/AdminCmsPanel.tsx`
+  - `src/admin/CmsAccessCard.tsx`
+
+- **TV remote Back/OK/arrow behavior change karna ho**
+  - JS side: `src/app/App.tsx`, `android/app/src/main/assets/cms/app.js`
+  - Native side: `android/app/src/main/java/com/signageplayertv/MainActivity.kt`
+
+- **TV-side CMS UI, scroll, S1/S2/S3, upload buttons change karna ho**
+  - `android/app/src/main/assets/cms/index.html`
+  - `android/app/src/main/assets/cms/style.css`
+  - `android/app/src/main/assets/cms/app.js`
+  - Native picker bridge: `src/admin/AdminCmsPanel.tsx` and `DeviceIdModule.java`
+
+- **Media playback/layout/template change karna ho**
+  - `src/player/`
+  - `src/player/slideRendererUtils.ts`
+  - CMS preview side: `android/app/src/main/assets/cms/app.js`
+
+- **Upload API/cache/storage behavior change karna ho**
+  - Embedded TV CMS: `EmbeddedCmsServer.java`, `DeviceIdModule.java`
+  - React Native services: `src/services/mediaService.ts`, `src/services/embeddedCmsService.ts`
+  - Browser/TV CMS upload logic: `android/app/src/main/assets/cms/app.js`
+
+- **USB behavior change karna ho**
+  - `src/services/usbManagerModule.ts`
+  - `src/services/usbPlaybackCacheService.ts`
+  - `android/app/src/main/java/com/signageplayertv/UsbManagerModule.java`
+  - `android/app/src/main/java/com/signageplayertv/UsbWakeReceiver.java`
+
+- **Auto-start / auto-reopen behavior change karna ho**
+  - `MainActivity.kt`
+  - `BootReceiver.java`
+  - `KioskKeepAliveService.kt`
+  - `DeviceIdModule.java`
+  - CMS buttons/API: `android/app/src/main/assets/cms/app.js`, `EmbeddedCmsServer.java`
+
+- **Logo/icon/background change karna ho**
+  - Adaptive background: `android/app/src/main/res/drawable/ic_launcher_background.xml`
+  - Launcher PNGs: `android/app/src/main/res/mipmap-*`
+  - Play Store icon: `android/app/src/main/res/playstore-icon.png`
+  - CMS logo asset: `android/app/src/main/assets/cms/nvlogo.png`
+
+### Change karte waqt rules
+
+1. **TV CMS ke assets duplicate jagah ho sakte hain**
+   - `android/app/src/main/assets/cms/` APK ke andar jaata hai.
+   - `server/public/` PC CMS ke liye hai.
+   - Agar feature dono CMS me chahiye to dono side check karein.
+
+2. **Native bridge carefully change karein**
+   - WebView CMS `window.ReactNativeWebView.postMessage(...)` se RN ko message bhejta hai.
+   - `AdminCmsPanel.tsx` message parse karke native module call karta hai.
+   - `DeviceIdModule.java` actual Android picker/upload/settings ka kaam karta hai.
+
+3. **Permissions test real Android TV par karein**
+   - Emulator aur TV behavior different ho sakta hai.
+   - Manage All Files, Overlay, Unknown Apps, USB permission manually verify karein.
+
+4. **Auto-reopen feature upload/picker ko interrupt kar sakta hai**
+   - File picker ya APK install flow ke time auto-reopen OFF karna safer hai.
+   - Is logic ko remove/change karne se upload workflow impact ho sakta hai.
+
+5. **Scroll/focus changes TV remote aur mouse dono se test karein**
+   - Arrow navigation ke liye focus logic `app.js` me hai.
+   - Mouse wheel/parent scroll ke liye TV compact CSS important hai.
+
+6. **Build/test commands**
+   - Unit tests:
+     ```sh
+     npm test -- --runInBand
+     ```
+   - Android debug APK:
+     ```sh
+     cd android
+     .\gradlew.bat assembleDebug --console plain
+     ```
+
+7. **Before final APK**
+   - Fresh install test karein.
+   - Permission prompts allow karke boot/reopen verify karein.
+   - QR scan from phone verify karein.
+   - TV CMS with remote verify karein.
+   - TV CMS with mouse scroll verify karein.
+   - S1/S2/S3 upload verify karein.
+   - Offline cached playback verify karein.
+   - USB insert/remove verify karein.
