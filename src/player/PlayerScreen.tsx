@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Image, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import Video, { BufferingStrategyType } from "react-native-video";
+import { WebView } from "react-native-webview";
 import SlideRenderer from "./SlideRenderer";
 import Ticker from "./Ticker";
 
@@ -403,10 +404,14 @@ export default function PlayerScreen({
       }
       return (
         <View style={{ flex: 1, backgroundColor: fallbackBgColor }}>
-          <Image
+          <WebView
             source={{ uri: fallbackMediaUrl }}
-            style={{ width: "100%", height: "100%" }}
-            resizeMode="cover"
+            style={{ flex: 1 }}
+            javaScriptEnabled
+            domStorageEnabled
+            allowsInlineMediaPlayback
+            allowsFullscreenVideo
+            mediaPlaybackRequiresUserAction={false}
           />
         </View>
       );
