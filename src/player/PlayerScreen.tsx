@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { Text, View } from "react-native";
 import Video, { BufferingStrategyType } from "react-native-video";
 import { WebView } from "react-native-webview";
@@ -16,38 +16,6 @@ function parseRatio(value: any, count: number): number[] {
   return parts;
 }
 
-function parseTimeToMinutes(value: string): number | null {
-  const [hStr, mStr] = String(value || "").split(":");
-  const h = Number(hStr);
-  const m = Number(mStr);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
-  return h * 60 + m;
-}
-
-function isScheduleActive(schedule: any): boolean {
-  if (!schedule?.enabled) return true;
-
-  const now = new Date();
-  const day = now.getDay();
-  const days = Array.isArray(schedule.days) && schedule.days.length
-    ? schedule.days.map((d: any) => Number(d)).filter((d: number) => Number.isFinite(d))
-    : [0, 1, 2, 3, 4, 5, 6];
-
-  if (!days.includes(day)) return false;
-
-  const start = parseTimeToMinutes(schedule.start || "00:00");
-  const end = parseTimeToMinutes(schedule.end || "23:59");
-  if (start == null || end == null) return true;
-  if (start === end) return true;
-
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  if (start < end) {
-    return nowMinutes >= start && nowMinutes < end;
-  }
-  return nowMinutes >= start || nowMinutes < end;
-}
-
 export default function PlayerScreen({
   config,
   mediaVersion,
@@ -61,8 +29,12 @@ export default function PlayerScreen({
   onPlaybackChange,
   onPlaybackError,
 }: any) {
-  const [scheduleOn, setScheduleOn] = useState(true);
-  const rendererEpoch = `${Number(mediaVersion || 0)}-${Number(contentResetVersion || 0)}-${Number(playlistSyncAt || 0)}-${String(playbackSourceVersion || "default")}`;
+  // App resolves the selected profile before rendering the player.  Keeping this
+  // check here makes the fallback immediate when the active slot changes.
+  const scheduleOn = !(config?.__scheduleRuntime?.enabled && !config?.__scheduleRuntime?.active);
+  // A slot/profile switch needs a fresh renderer even if the media manifest has
+  // not changed (for example two profiles use different remote playlists).
+  const rendererEpoch = `${Number(mediaVersion || 0)}-${Number(contentResetVersion || 0)}-${Number(playlistSyncAt || 0)}-${String(playbackSourceVersion || "default")}-${String(config?.__scheduleRuntime?.activeEntryId || "default")}`;
   const getSectionKey = (sectionIndex: number) => {
     const timeline = sectionPlaybackTimeline?.[sectionIndex + 1] || null;
     const cycle = String(timeline?.cycleId || timeline?.syncAt || "none");
@@ -71,13 +43,6 @@ export default function PlayerScreen({
   };
   const grid3Layout = config?.grid3Layout || "stack-v";
   const gridRatio = config?.gridRatio || "1:1:1";
-  useEffect(() => {
-    const evalSchedule = () => setScheduleOn(isScheduleActive(config?.schedule));
-    evalSchedule();
-    const timer = setInterval(evalSchedule, 30000);
-    return () => clearInterval(timer);
-  }, [config?.schedule]);
-
   const renderGrid3 = () => {
     if (grid3Layout === "stack-h") {
       const [a, b, c] = parseRatio(gridRatio, 3);

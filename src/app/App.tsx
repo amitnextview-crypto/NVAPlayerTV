@@ -22,6 +22,7 @@ import AdminCmsPanel from "../admin/AdminCmsPanel";
 import CmsAccessCard from "../admin/CmsAccessCard";
 import PlayerScreen from "../player/PlayerScreen";
 import { loadConfig } from "../services/configService";
+import { resolveScheduledConfig } from "../services/scheduleService";
 import {
   clearEmbeddedCmsState,
   setEmbeddedRuntimeInfo,
@@ -189,6 +190,7 @@ export default function App() {
   const [adminInitialView, setAdminInitialView] = useState<"access" | "cms">("access");
   const [ready, setReady] = useState(false);
   const [config, setConfig] = useState<any>(null);
+  const [scheduleClockTick, setScheduleClockTick] = useState(() => Date.now());
   const [mediaVersion, setMediaVersion] = useState(0);
   const [connectSubtitleText, setConnectSubtitleText] = useState(
     "Preparing network scan..."
@@ -241,6 +243,23 @@ export default function App() {
   const lastConfigSyncAtRef = useRef("");
   const lastMediaSyncAtRef = useRef("");
   const pendingApkUpdateSuccessRef = useRef<any | null>(null);
+  useEffect(() => {
+    if (!config?.schedule?.enabled) return;
+    // Re-evaluate exactly after each minute boundary, not just after a polling
+    // interval. This makes a 09:00 slot switch at 09:00.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleNextMinute = () => {
+      const delay = 60000 - (Date.now() % 60000) + 40;
+      timer = setTimeout(() => {
+        setScheduleClockTick(Date.now());
+        scheduleNextMinute();
+      }, delay);
+    };
+    setScheduleClockTick(Date.now());
+    scheduleNextMinute();
+    return () => { if (timer) clearTimeout(timer); };
+  }, [config?.schedule?.enabled]);
+
   const errorClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const offlineNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const offlineNoticeRef = useRef("");
@@ -2363,10 +2382,15 @@ export default function App() {
     slideDuration: 5,
     sections: [{ sourceType: "multimedia" }],
   };
-  const effectiveConfig =
-    sourceSnapshot.activeSource === "USB"
-      ? playbackControllerRef.current.buildUsbConfig(safeConfig)
-      : safeConfig;
+  const scheduledConfig = resolveScheduledConfig(safeConfig, new Date(scheduleClockTick));
+  const effectiveConfig = sourceSnapshot.activeSource === "USB"
+    ? playbackControllerRef.current.buildUsbConfig(scheduledConfig.config)
+    : scheduledConfig.config;
+  effectiveConfig.__scheduleRuntime = {
+    enabled: scheduledConfig.enabled,
+    active: !!scheduledConfig.activeEntry,
+    activeEntryId: String(scheduledConfig.activeEntry?.id || ""),
+  };
   const playbackSourceVersion =
     sourceSnapshot.activeSource === "USB"
       ? [

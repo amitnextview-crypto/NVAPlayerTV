@@ -34,6 +34,14 @@
   }
 
   function notice(type, title, message, duration) {
+    const modal = byId("enterpriseModal");
+    // Keep Group Manager results inside its dialog instead of behind/below it.
+    if (modal && !modal.classList.contains("hidden")) {
+      setManageFeedback(type, `${String(title || "Status")}: ${String(message || "")}`);
+      const panel = modal.querySelector(".enterprise-modal-panel");
+      if (panel) panel.scrollTop = 0;
+      return;
+    }
     if (window.__cmsShowNotice) {
       window.__cmsShowNotice(type, title, message, duration);
       return;
@@ -434,7 +442,7 @@
       row.innerHTML = `
         <label>
           <input type="checkbox" data-device-id="${device.deviceId}" ${selected.has(deviceKey) ? "checked" : ""} />
-          <span>${device.name || device.deviceId}</span>
+          <span class="enterprise-picker-device-name">${device.name || device.deviceId}${device.ip ? ` <span class="enterprise-picker-device-ip">(IP: ${device.ip})</span>` : ""}</span>
         </label>
         <span class="enterprise-badge ${device.online ? "online" : "offline"}">
           ${device.online ? "Online" : "Offline"}
@@ -680,10 +688,6 @@
     }
     if (!selectedDevices.length) {
       notice("warning", "No Devices Selected", "Select at least one device for the group.");
-      return;
-    }
-    if (selectedDevices.length > 5) {
-      notice("warning", "Group Limit Reached", "A group can include up to 5 devices only.");
       return;
     }
     const saved = await runGroupActionProgress(

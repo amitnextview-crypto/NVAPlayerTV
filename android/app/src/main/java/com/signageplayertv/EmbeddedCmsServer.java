@@ -515,9 +515,6 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
             return errorJson(Response.Status.BAD_REQUEST, "group-name-required", null);
         }
         JSONArray uniqueDevices = uniqueStringArray(devices);
-        if (uniqueDevices.length() > 5) {
-            return errorJson(Response.Status.BAD_REQUEST, "group-device-limit-5", null);
-        }
         for (int i = 0; i < groups.length(); i += 1) {
             JSONObject item = groups.optJSONObject(i);
             if (item == null) continue;
@@ -594,7 +591,7 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
     private Response handleGroupAutoCreate(IHTTPSession session) throws Exception {
         JSONObject body = readJsonBody(session);
         JSONArray devices = uniqueStringArray(body.optJSONArray("devices"));
-        int chunkSize = Math.max(1, Math.min(5, body.optInt("groupSize", 5)));
+        int chunkSize = Math.max(1, body.optInt("groupSize", 5));
         JSONObject state = EmbeddedCmsRuntime.getEnterpriseState(context);
         JSONArray groups = state.optJSONArray("groups");
         if (groups == null) groups = new JSONArray();
@@ -640,7 +637,7 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         JSONObject settings = queue.optJSONObject("settings");
         if (settings == null) settings = new JSONObject();
         settings.put("maxConcurrentUploads", Math.max(1, Math.min(5, body.optInt("maxConcurrentUploads", settings.optInt("maxConcurrentUploads", 3)))));
-        settings.put("groupSize", Math.max(1, Math.min(5, body.optInt("groupSize", settings.optInt("groupSize", 5)))));
+        settings.put("groupSize", Math.max(1, body.optInt("groupSize", settings.optInt("groupSize", 5))));
         queue.put("settings", settings);
         state.put("queue", queue);
         state.put("updatedAt", System.currentTimeMillis());
@@ -1044,7 +1041,8 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         if (manifestFile.exists()) {
             manifest = new JSONObject(readTextFile(manifestFile));
         } else {
-            clearSectionMedia(section);
+            // Schedule profiles share a section media library. Do not erase an
+            // earlier profile's files when a new profile uploads more media.
             manifest = new JSONObject();
             manifest.put("uploadId", uploadId);
             manifest.put("section", section);
@@ -1698,6 +1696,7 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
     }
 
     private void activateIncomingSection(File incomingDir, int section) throws Exception {
+        File previousDir = resolveSectionDirectory(section);
         File versionsDir = getSectionVersionsDir(section);
         File activeFile = getSectionActiveFile(section);
         if (!versionsDir.exists() && !versionsDir.mkdirs()) {
@@ -1709,6 +1708,9 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
             copyDirectory(incomingDir, versionDir);
             deleteRecursively(incomingDir);
         }
+        // New files replace same-named files; existing files stay available for
+        // other saved schedule profiles.
+        copyMissingDirectory(previousDir, versionDir);
 
         JSONArray files = new JSONArray();
         File[] versionFiles = versionDir.listFiles();
@@ -1881,6 +1883,28 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
             }
             return;
         }
+        File parent = to.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IOException("Unable to create directory: " + parent.getAbsolutePath());
+        }
+        copyFile(from, to);
+    }
+
+    private void copyMissingDirectory(File from, File to) throws IOException {
+        if (from == null || !from.exists()) return;
+        if (from.isDirectory()) {
+            if (!to.exists() && !to.mkdirs()) {
+                throw new IOException("Unable to create directory: " + to.getAbsolutePath());
+            }
+            File[] children = from.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    copyMissingDirectory(child, new File(to, child.getName()));
+                }
+            }
+            return;
+        }
+        if (to.exists()) return;
         File parent = to.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new IOException("Unable to create directory: " + parent.getAbsolutePath());

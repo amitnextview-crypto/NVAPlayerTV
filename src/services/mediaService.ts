@@ -1168,8 +1168,19 @@ export async function syncMedia(
   }
 }
 
-export async function getMediaFiles(sectionIndex = 0) {
+export async function getMediaFiles(sectionIndex = 0, playlistNames?: string[]) {
   const sectionNo = sectionIndex + 1;
+  // An omitted playlist means the legacy section playlist. An explicit empty
+  // array is a valid profile playlist and intentionally plays no media.
+  const requestedNames = Array.isArray(playlistNames)
+    ? new Set(playlistNames.map((name) => String(name || "").trim()).filter(Boolean))
+    : null;
+  const selectPlaylist = (items: MediaItem[]) => {
+    const sectionItems = items.filter((file) => Number(file.section || 0) === sectionNo);
+    return requestedNames
+      ? sectionItems.filter((file) => requestedNames.has(String(file.originalName || file.name || "")))
+      : sectionItems;
+  };
 
   if (playbackOverride) {
     const overrideSection = Math.max(1, Number(playbackOverride.items?.[0]?.section || 1));
@@ -1179,7 +1190,7 @@ export async function getMediaFiles(sectionIndex = 0) {
 
   try {
     const mapped = await refreshPlayableList();
-    const filtered = mapped.filter((file) => Number(file.section || 0) === sectionNo);
+    const filtered = selectPlaylist(mapped);
     try {
       const names = filtered
         .map((file) => String(file.originalName || file.name || file.url || ""))
@@ -1207,7 +1218,7 @@ export async function getMediaFiles(sectionIndex = 0) {
   }
 
   const cached = await loadCachedPlayableList();
-  const filtered = cached.filter((file) => Number(file.section || 0) === sectionNo);
+  const filtered = selectPlaylist(cached);
   try {
     const names = filtered
       .map((file) => String(file.originalName || file.name || file.url || ""))

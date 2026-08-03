@@ -102,6 +102,7 @@ const seenApkUpdateSuccessNotices = new Set();
 let currentDeviceMap = new Map();
 let selectedDeviceOrigins = new Set(loadStoredSelectedOrigins());
 let cmsAccessOverrides = {};
+let scheduleManagerState = { profiles: [], entries: [], editingEntryId: "", editingProfileId: "" };
 let cmsFormDirty = false;
 let cmsFormHydrating = false;
 let cmsDraftRestoreChecked = false;
@@ -2272,6 +2273,157 @@ function updateGridRatioOptions() {
   ratioSelect.value = selectedGridRatio;
 }
 
+function scheduleId(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
+function scheduleMinutes(value) {
+  const [hour, minute] = String(value || "").split(":").map(Number);
+  return Number.isInteger(hour) && Number.isInteger(minute) && hour >= 0 && hour < 24 && minute >= 0 && minute < 60 ? hour * 60 + minute : null;
+}
+function schedulePartsOnDay(entry, day) {
+  const start = scheduleMinutes(entry.start), end = scheduleMinutes(entry.end);
+  const days = Array.isArray(entry.days) && entry.days.length ? entry.days.map(Number) : [0, 1, 2, 3, 4, 5, 6];
+  if (start == null || end == null) return [];
+  if (start === end) return days.includes(day) ? [[0, 1440]] : [];
+  if (start < end) return days.includes(day) ? [[start, end]] : [];
+  const parts = [];
+  if (days.includes(day)) parts.push([start, 1440]);
+  if (days.includes((day + 6) % 7)) parts.push([0, end]);
+  return parts;
+}
+function scheduleEntriesOverlap(a, b) {
+  return Array.from({ length: 7 }, (_, day) => day).some((day) =>
+    schedulePartsOnDay(a, day).some((left) => schedulePartsOnDay(b, day).some((right) => left[0] < right[1] && right[0] < left[1]))
+  );
+}
+function renderScheduleProfileMediaPicker() {
+  const root = document.getElementById("scheduleProfileMediaPicker");
+  if (!root) return;
+  const selected = new Set(Array.from(root.querySelectorAll("input:checked")).map((input) => `${input.dataset.section}|${input.dataset.name}`));
+  root.innerHTML = "";
+  for (let section = 1; section <= 3; section += 1) {
+    const files = Array.isArray(previewMediaBySection?.[section]) ? previewMediaBySection[section] : [];
+    const block = document.createElement("div");
+    block.className = "schedule-media-section";
+    const heading = document.createElement("strong");
+    heading.textContent = `Section ${section} files`;
+    block.appendChild(heading);
+    if (!files.length) {
+      const empty = document.createElement("span");
+      empty.textContent = "No uploaded files yet";
+      block.appendChild(empty);
+    } else {
+      files.forEach((file) => {
+        const name = String(file?.originalName || file?.name || "").trim();
+        if (!name) return;
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.dataset.section = String(section);
+        input.dataset.name = name;
+        input.checked = selected.has(`${section}|${name}`);
+        input.addEventListener("change", markCmsFormDirty);
+        const title = document.createElement("span");
+        title.textContent = name;
+        label.append(input, title);
+        block.appendChild(label);
+      });
+    }
+    root.appendChild(block);
+  }
+}
+function getScheduleProfileMediaSelection() {
+  const selected = { 1: [], 2: [], 3: [] };
+  Array.from(document.querySelectorAll("#scheduleProfileMediaPicker input:checked")).forEach((input) => {
+    const section = Number(input.dataset.section || 0);
+    const name = String(input.dataset.name || "").trim();
+    if (selected[section] && name) selected[section].push(name);
+  });
+  return selected;
+}
+function getScheduleProfile(id) { return scheduleManagerState.profiles.find((profile) => profile.id === id) || null; }
+function updateScheduleProfileEditorStatus() {
+  const status = document.getElementById("scheduleProfileEditorStatus");
+  const profile = getScheduleProfile(String(document.getElementById("scheduleProfileSelect")?.value || scheduleManagerState.editingProfileId || ""));
+  if (!status) return;
+  status.textContent = profile
+    ? `Editing “${profile.name}”: changes above and new uploads will belong only to this profile.`
+    : "Select a profile to start editing its files and design.";
+  status.classList.toggle("is-active", !!profile);
+}
+function saveCurrentDesignToScheduleProfile(profileId) {
+  const profile = getScheduleProfile(profileId);
+  if (!profile) return false;
+  const current = buildConfigFromForm();
+  const priorSections = profile.config?.sections || [];
+  current.sections = (current.sections || []).map((section, index) => ({
+    ...section,
+    playlistNames: Array.isArray(priorSections[index]?.playlistNames) ? priorSections[index].playlistNames : [],
+  }));
+  delete current.schedule;
+  profile.config = current;
+  return true;
+}
+function openScheduleProfileEditor(id) {
+  const profile = getScheduleProfile(String(id || ""));
+  if (!profile) return;
+  const preservedSchedule = getScheduleFromForm();
+  scheduleManagerState.editingProfileId = profile.id;
+  applyConfigToForm({ ...profile.config, schedule: preservedSchedule });
+  scheduleManagerState.editingProfileId = profile.id;
+  const select = document.getElementById("scheduleProfileSelect");
+  if (select) select.value = profile.id;
+  updateScheduleProfileEditorStatus();
+  showNotice("info", "Profile Ready", `You are now editing ${profile.name}. Upload files and change CMS settings, then save them to this profile.`, 5000);
+}
+function saveScheduleProfileChanges() {
+  const profileId = String(document.getElementById("scheduleProfileSelect")?.value || scheduleManagerState.editingProfileId || "");
+  if (!saveCurrentDesignToScheduleProfile(profileId)) return showNotice("warning", "Select Profile", "Choose the profile whose files and design you want to save.");
+  scheduleManagerState.editingProfileId = profileId;
+  renderScheduleManager();
+  const select = document.getElementById("scheduleProfileSelect");
+  if (select) select.value = profileId;
+  updateScheduleProfileEditorStatus();
+  markCmsFormDirty();
+  showNotice("success", "Profile Updated", "Files and current CMS design are saved to this profile.");
+}
+function addUploadedMediaToScheduleProfile(section, uploadFiles) {
+  const profileId = String(document.getElementById("scheduleProfileSelect")?.value || scheduleManagerState.editingProfileId || "");
+  const profile = getScheduleProfile(profileId);
+  if (!profile) return;
+  const index = Math.max(0, Math.min(2, Number(section || 1) - 1));
+  profile.config = profile.config || {};
+  profile.config.sections = Array.isArray(profile.config.sections) ? profile.config.sections : [];
+  profile.config.sections[index] = profile.config.sections[index] || { sourceType: "multimedia" };
+  const existing = Array.isArray(profile.config.sections[index].playlistNames) ? profile.config.sections[index].playlistNames : [];
+  const names = (uploadFiles || []).map((file) => String(file?.name || "").trim()).filter(Boolean);
+  profile.config.sections[index].playlistNames = Array.from(new Set([...existing, ...names]));
+  markCmsFormDirty();
+}
+function renderScheduleManager() {
+  const select = document.getElementById("scheduleProfileSelect"), entriesList = document.getElementById("scheduleEntriesList"), profilesList = document.getElementById("scheduleProfilesList"), warning = document.getElementById("scheduleConflictWarning");
+  if (!select || !entriesList || !profilesList || !warning) return;
+  const previousSelection = select.value;
+  select.innerHTML = scheduleManagerState.profiles.length
+    ? scheduleManagerState.profiles.map((profile) => `<option value="${profile.id}">${escapeHtml(profile.name)}</option>`).join("")
+    : `<option value="">Save a profile first</option>`;
+  if (scheduleManagerState.profiles.some((profile) => profile.id === previousSelection)) select.value = previousSelection;
+  if (scheduleManagerState.editingProfileId && scheduleManagerState.profiles.some((profile) => profile.id === scheduleManagerState.editingProfileId)) select.value = scheduleManagerState.editingProfileId;
+  profilesList.innerHTML = scheduleManagerState.profiles.map((profile) => { const mediaCount=(profile?.config?.sections||[]).reduce((total,section)=>total+(Array.isArray(section?.playlistNames)?section.playlistNames.length:0),0); return `<div class="schedule-profile-card"><strong>${escapeHtml(profile.name)}</strong><span>${mediaCount} selected file${mediaCount===1?"":"s"} · saved content + design</span><button class="btn warning compact-btn" onclick="window.scheduleDeleteProfile?.('${profile.id}')">Delete</button></div>`; }).join("");
+  entriesList.innerHTML = scheduleManagerState.entries.map((entry) => {
+    const profile = scheduleManagerState.profiles.find((item) => item.id === entry.profileId);
+    const days = (entry.days || []).map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][Number(day)]).filter(Boolean).join(", ");
+    return `<div class="schedule-entry-card"><strong>${escapeHtml(profile?.name || "Missing profile")}</strong><div>${entry.start}–${entry.end} · ${days || "No days"} · Priority ${Number(entry.priority || 0)}</div><button class="btn primary compact-btn" onclick="window.scheduleEditEntry?.('${entry.id}')">Edit</button> <button class="btn warning compact-btn" onclick="window.scheduleDeleteEntry?.('${entry.id}')">Delete</button></div>`;
+  }).join("") || `<div class="enterprise-meta">No slots. When scheduling is enabled, the fallback appears outside these slots.</div>`;
+  const conflicts = scheduleManagerState.entries.filter((entry) => entry.enabled !== false).reduce((count, entry, index, all) => count + all.slice(index + 1).filter((other) => other.enabled !== false && scheduleEntriesOverlap(entry, other)).length, 0);
+  warning.classList.toggle("hidden", !conflicts);
+  warning.textContent = conflicts ? `${conflicts} overlap${conflicts === 1 ? "" : "s"} detected — the highest-priority slot wins.` : "";
+  updateScheduleProfileEditorStatus();
+}
+function saveScheduleProfile(){const name=String(document.getElementById("scheduleProfileName")?.value||"").trim();if(!name)return showNotice("warning","Profile Name Required","Enter a profile name.");const config=buildConfigFromForm();(config.sections||[]).forEach((section)=>{if(normalizeSectionSourceType(section?.sourceType)===SECTION_SOURCE_TYPES.multimedia)section.playlistNames=[];});delete config.schedule;const item={id:scheduleId("profile"),name,config};scheduleManagerState.profiles.push(item);scheduleManagerState.editingProfileId=item.id;document.getElementById("scheduleProfileName").value="";renderScheduleManager();const select=document.getElementById("scheduleProfileSelect");if(select)select.value=item.id;updateScheduleProfileEditorStatus();markCmsFormDirty();showNotice("success","Profile Created",`Now select ${name}, upload its files and set its design.`);}
+function saveScheduleEntry(){const profileId=String(document.getElementById("scheduleProfileSelect")?.value||"");const days=Array.from(document.querySelectorAll(".schedule-day")).filter(x=>x.checked).map(x=>Number(x.value));const start=document.getElementById("scheduleStart")?.value,end=document.getElementById("scheduleEnd")?.value;if(!profileId||!days.length)return showNotice("warning","Profile And Days Required","Select a profile and at least one active day.");if(scheduleMinutes(start)==null||scheduleMinutes(end)==null)return showNotice("warning","Time Required","Enter valid start and end times.");saveCurrentDesignToScheduleProfile(profileId);const x={id:scheduleManagerState.editingEntryId||scheduleId("slot"),enabled:true,profileId,start,end,days,priority:Number(document.getElementById("schedulePriority").value||0)};const i=scheduleManagerState.entries.findIndex(y=>y.id===x.id);if(i<0)scheduleManagerState.entries.push(x);else scheduleManagerState.entries[i]=x;scheduleManagerState.editingEntryId="";scheduleManagerState.editingProfileId=profileId;renderScheduleManager();markCmsFormDirty();}
+function editScheduleEntry(id){const x=scheduleManagerState.entries.find(y=>y.id===id);if(!x)return;scheduleManagerState.editingEntryId=id;document.getElementById("scheduleStart").value=x.start;document.getElementById("scheduleEnd").value=x.end;document.getElementById("schedulePriority").value=String(x.priority||0);Array.from(document.querySelectorAll(".schedule-day")).forEach(y=>y.checked=(x.days||[]).includes(Number(y.value)));renderScheduleManager();document.getElementById("scheduleProfileSelect").value=x.profileId;}
+function deleteScheduleEntry(id){scheduleManagerState.entries=scheduleManagerState.entries.filter(x=>x.id!==id);renderScheduleManager();markCmsFormDirty();}
+function clearScheduleEntryEditor(){scheduleManagerState.editingEntryId="";document.getElementById("schedulePriority").value="0";}
+function deleteScheduleProfile(id){if(scheduleManagerState.entries.some(x=>x.profileId===id))return showNotice("warning","Profile In Use","Delete its slots first.");scheduleManagerState.profiles=scheduleManagerState.profiles.filter(x=>x.id!==id);renderScheduleManager();markCmsFormDirty();}
 function getScheduleFromForm() {
   const enabled = !!document.getElementById("scheduleEnabled")?.checked;
   const start = document.getElementById("scheduleStart")?.value || "09:00";
@@ -2297,10 +2449,13 @@ function getScheduleFromForm() {
     fallbackImageUrl,
     fallbackTextColor,
     fallbackBgColor,
+    profiles: scheduleManagerState.profiles,
+    entries: scheduleManagerState.entries,
+
   };
 }
-
 function setScheduleToForm(schedule) {
+  const editingProfileId = scheduleManagerState.editingProfileId || "";
   const safeSchedule = schedule || {};
   const enabled = !!safeSchedule.enabled;
   const start = safeSchedule.start || "09:00";
@@ -2322,6 +2477,14 @@ function setScheduleToForm(schedule) {
 
   if (enabledEl) enabledEl.checked = enabled;
   if (startEl) startEl.value = start;
+  scheduleManagerState = {
+    profiles: Array.isArray(safeSchedule.profiles) ? safeSchedule.profiles : [],
+    entries: Array.isArray(safeSchedule.entries) ? safeSchedule.entries : [],
+    editingEntryId: "",
+    editingProfileId,
+  };
+  renderScheduleProfileMediaPicker();
+  renderScheduleManager();
   if (endEl) endEl.value = end;
   if (modeEl) modeEl.value = fallbackMode;
   if (msgEl) msgEl.value = safeSchedule.fallbackMessage || "";
@@ -3178,6 +3341,7 @@ async function loadPreviewMedia(deviceId) {
       });
     }
     previewMediaBySection = grouped;
+    renderScheduleProfileMediaPicker();
     resetPreviewState();
   } catch (e) {
     console.log("Preview media load failed", e);
@@ -3213,6 +3377,7 @@ async function loadPreviewMediaSection(deviceId, sectionNumber) {
       });
     }
     previewMediaBySection[sectionNumber] = next;
+    renderScheduleProfileMediaPicker();
     if (previewSectionState[sectionNumber]?.timer) {
       clearTimeout(previewSectionState[sectionNumber].timer);
       previewSectionState[sectionNumber].timer = null;
@@ -4843,6 +5008,7 @@ async function uploadMedia(section) {
 
     tracker.finish(`Upload finished. ${successfulTargets.length}/${queuedTargets.length} devices updated.`);
     if (successfulTargets.length) {
+      addUploadedMediaToScheduleProfile(section, uploadFiles);
       Promise.race([
         loadPreviewMediaSection(primaryOrigin, section),
         wait(2500),
@@ -5157,6 +5323,14 @@ async function uploadAndInstallAppUpdate() {
 
 // Ensure inline onclick handlers in index.html always resolve these actions.
 window.clearDeviceData = clearDeviceData;
+window.scheduleSaveProfile = saveScheduleProfile;
+window.scheduleSaveProfileChanges = saveScheduleProfileChanges;
+window.scheduleOpenProfile = openScheduleProfileEditor;
+window.scheduleSaveEntry = saveScheduleEntry;
+window.scheduleEditEntry = editScheduleEntry;
+window.scheduleDeleteEntry = deleteScheduleEntry;
+window.scheduleClearEntryEditor = clearScheduleEntryEditor;
+window.scheduleDeleteProfile = deleteScheduleProfile;
 window.clearDeviceCache = clearDeviceCache;
 window.restartDeviceApp = restartDeviceApp;
 window.setAutoReopen = setAutoReopen;
@@ -5248,6 +5422,10 @@ window.editSectionTemplate = editSectionTemplate;
     const fields = document.getElementById("scheduleFields");
     if (fields) fields.style.opacity = document.getElementById("scheduleEnabled").checked ? "1" : "0.55";
     markCmsFormDirty();
+  });
+  document.getElementById("scheduleProfileSelect").addEventListener("change", (event) => {
+    const profileId = String(event?.target?.value || "");
+    if (profileId) openScheduleProfileEditor(profileId);
   });
   document.getElementById("scheduleFallbackMode").addEventListener("change", () => {
     updateScheduleFallbackVisibility();

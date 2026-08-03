@@ -291,6 +291,7 @@ export default function SlideRenderer({
   const sectionConfig = config?.sections?.[sectionIndex] || {};
   const sourceType = sectionConfig?.sourceType || SOURCE_TYPES.multimedia;
   const sourceUrl = sectionConfig?.sourceUrl || "";
+  const playlistNames = Array.isArray(sectionConfig?.playlistNames) ? sectionConfig.playlistNames : undefined;
   const sourceTemplates = Array.isArray(sectionConfig?.sourceTemplates)
     ? sectionConfig.sourceTemplates
     : sectionConfig?.sourceTemplate
@@ -489,7 +490,7 @@ export default function SlideRenderer({
     retryTimerRef.current = setTimeout(async () => {
       if (!isMountedRef.current) return;
       try {
-        const list = await getMediaFiles(sectionIndex);
+        const list = await getMediaFiles(sectionIndex, playlistNames);
         if (!isMountedRef.current) return;
         if (Array.isArray(list) && list.length) {
           setFiles((prev) => (areMediaListsEqual(prev, list) ? prev : list));
@@ -624,7 +625,7 @@ export default function SlideRenderer({
     // Load media even when server is "" – getMediaFiles falls back to cached list.
     const load = async () => {
       try {
-        const list = await getMediaFiles(sectionIndex);
+        const list = await getMediaFiles(sectionIndex, playlistNames);
         if (Array.isArray(list) && list.length > 0) {
           emptyFetchCountRef.current = 0;
           setFiles((prev) => (areMediaListsEqual(prev, list) ? prev : list));
@@ -645,7 +646,7 @@ export default function SlideRenderer({
       }
     };
     load();
-  }, [sectionIndex, server, mediaVersion, sourceType, sourceUrl]);
+  }, [sectionIndex, server, mediaVersion, sourceType, sourceUrl, JSON.stringify(playlistNames || [])]);
 
   useEffect(() => {
     if (sourceType !== SOURCE_TYPES.template || sourceTemplates.length <= 1) {
@@ -1047,7 +1048,7 @@ export default function SlideRenderer({
       const RETRY_DELAY_MS = 500;
       for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
         try {
-          const list = await getMediaFiles(sectionIndex);
+          const list = await getMediaFiles(sectionIndex, playlistNames);
           if (cancelled || !isMountedRef.current) return;
           if (Array.isArray(list) && list.length) {
             setFiles((prev) => (areMediaListsEqual(prev, list) ? prev : list));
