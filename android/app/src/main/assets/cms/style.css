@@ -2494,18 +2494,29 @@ input[type="range"] {
 /* Keep every upload/apply progress message centred, including multi-device saves. */
 .upload-loader:not(.hidden) {
   display: grid;
-  place-content: center;
+  place-items: center;
+  padding: 20px;
+  overflow: auto;
+}
+
+.upload-loader-panel {
+  width: min(600px, 100%);
+  display: grid;
   justify-items: center;
   gap: 12px;
-  padding: 20px;
+  padding: 24px;
+  border: 1px solid rgba(122, 194, 242, 0.3);
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(10, 23, 35, 0.98), rgba(6, 14, 22, 0.97));
+  box-shadow: 0 24px 65px rgba(0, 0, 0, 0.46);
   text-align: center;
 }
 
-.upload-loader #uploadStatus,
-.upload-loader .upload-progress,
-.upload-loader .upload-progress-text,
-.upload-loader .upload-detail-list {
-  width: min(560px, 92vw);
+.upload-loader-panel #uploadStatus,
+.upload-loader-panel .upload-progress,
+.upload-loader-panel .upload-progress-text,
+.upload-loader-panel .upload-detail-list {
+  width: 100%;
   margin: 0;
   text-align: center;
 }
@@ -3068,6 +3079,58 @@ body.tv-compact-mode.tv-screen-portrait .right-col {
   #scheduleCard .days-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #scheduleCard .schedule-entry-card,
   #scheduleCard .schedule-profile-card { grid-template-columns: 1fr; }
+}
+
+/* All user-facing overlays share one full-viewport, centred presentation. */
+.upload-loader,
+.message-overlay,
+.dashboard-overlay,
+.template-editor-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  min-width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.dashboard-overlay,
+.template-editor-overlay {
+  display: grid;
+  place-items: center;
+}
+
+@supports (width: 100dvw) {
+  .upload-loader,
+  .message-overlay,
+  .dashboard-overlay,
+  .template-editor-overlay {
+    width: 100dvw;
+    min-width: 100dvw;
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+}
+
+/* The CMS is zoomed on wide TV screens; cancel that scale only for fixed overlays
+   so the dimmed backdrop still covers the complete physical screen. */
+@media (min-width: 900px) and (orientation: landscape) {
+  .upload-loader,
+  .message-overlay,
+  .dashboard-overlay,
+  .template-editor-overlay {
+    zoom: 1.111111;
+  }
+}
+
+@media (min-width: 1400px) and (orientation: landscape) {
+  .upload-loader,
+  .message-overlay,
+  .dashboard-overlay,
+  .template-editor-overlay {
+    zoom: 1.162791;
+  }
 }
 
 .message-panel::before {

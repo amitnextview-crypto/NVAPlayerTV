@@ -1291,6 +1291,39 @@ input[type="range"] {
   display: none;
 }
 
+.upload-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 12900;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.76);
+  backdrop-filter: blur(4px);
+}
+
+.upload-loader-panel {
+  width: min(600px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  border: 1px solid rgba(122, 194, 242, 0.3);
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(10, 23, 35, 0.98), rgba(6, 14, 22, 0.97));
+  box-shadow: 0 24px 65px rgba(0, 0, 0, 0.46);
+  text-align: center;
+}
+
+.upload-loader-panel #uploadStatus,
+.upload-loader-panel .upload-progress,
+.upload-loader-panel .upload-progress-text {
+  width: 100%;
+  margin: 0;
+  text-align: center;
+}
+
 .message-overlay {
   position: fixed;
   inset: 0;
@@ -1566,6 +1599,38 @@ input[type="range"] {
 
   .template-editor-head {
     flex-direction: column;
+  }
+}
+
+/* Keep every user-facing dialog fully on screen and centred. */
+.upload-loader,
+.message-overlay,
+.dashboard-overlay,
+.template-editor-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  min-width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.dashboard-overlay,
+.template-editor-overlay {
+  display: grid;
+  place-items: center;
+}
+
+@supports (width: 100dvw) {
+  .upload-loader,
+  .message-overlay,
+  .dashboard-overlay,
+  .template-editor-overlay {
+    width: 100dvw;
+    min-width: 100dvw;
+    height: 100dvh;
+    min-height: 100dvh;
   }
 }
 

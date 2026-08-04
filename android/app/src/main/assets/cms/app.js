@@ -1109,6 +1109,11 @@ function updateUploadProgress(percent, statusText) {
   if (fill) fill.style.width = `${clamped}%`;
   if (progressText) progressText.textContent = `${clamped}%`;
   if (status && statusText) status.textContent = statusText;
+  const progress = document.querySelector("#uploadLoader .upload-progress");
+  if (progress) {
+    progress.setAttribute("aria-valuenow", String(clamped));
+    if (statusText) progress.setAttribute("aria-valuetext", `${clamped}% — ${statusText}`);
+  }
 }
 
 function getPendingUploadFiles(section) {
