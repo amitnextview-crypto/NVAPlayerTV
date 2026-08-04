@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -247,13 +248,23 @@ export default function AdminCmsPanel({
             </TouchableOpacity>
           </View>
 
-          <View style={[styles.content, isCompactScreen ? styles.contentCompact : null]}>
+          <ScrollView
+            style={styles.accessScroll}
+            contentContainerStyle={[
+              styles.content,
+              styles.accessScrollContent,
+              isCompactScreen ? styles.contentCompact : null,
+            ]}
+            showsVerticalScrollIndicator
+            persistentScrollbar
+            keyboardShouldPersistTaps="handled"
+          >
             <CmsAccessCard
               compact
               onOpenCms={() => onViewChange("cms")}
               preferredFocusTarget="openCms"
             />
-          </View>
+          </ScrollView>
         </>
       )}
     </Animated.View>
@@ -308,8 +319,14 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   content: {
-    flex: 1,
     padding: 12,
+  },
+  accessScroll: {
+    flex: 1,
+  },
+  accessScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 28,
   },
   contentCompact: {
     padding: 8,

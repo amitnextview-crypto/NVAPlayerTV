@@ -193,10 +193,14 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
                             writeConfig(merged);
                             applyConfigSideEffects(merged);
                         }
-                        EmbeddedCmsRuntime.emitEvent("config-updated", new JSONObject());
                         JSONObject payload = new JSONObject();
                         payload.put("success", true);
                         payload.put("config", readConfig());
+                        // Deliver the saved config to the player immediately.
+                        // This avoids a second local HTTP read racing with the
+                        // React event, which could otherwise leave one TV on a
+                        // stale ticker configuration.
+                        EmbeddedCmsRuntime.emitEvent("config-updated", payload);
                         return json(payload);
                     } catch (Exception e) {
                         return errorJson(Response.Status.INTERNAL_ERROR, "config-save-failed", e);

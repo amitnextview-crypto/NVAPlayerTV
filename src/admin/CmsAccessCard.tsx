@@ -203,8 +203,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
   },
   qrImagePortrait: {
-    width: 150,
-    height: 150,
+    width: 136,
+    height: 136,
   },
   qrImageSmall: {
     width: 120,
@@ -264,6 +264,7 @@ const styles = StyleSheet.create({
   },
   metaWrap: {
     flex: 1,
+    minWidth: 0,
   },
   metaWrapPortrait: {
     width: "100%",

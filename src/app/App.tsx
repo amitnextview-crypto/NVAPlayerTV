@@ -989,6 +989,15 @@ export default function App() {
         const payload = event?.payload ? JSON.parse(String(event.payload)) : {};
         if (type === "config-updated") {
           sourceManagerRef.current.onCmsUpdate();
+          // Embedded CMS sends the exact config that was just saved. Applying
+          // it directly makes ticker changes immediate on every TV and avoids
+          // briefly falling back to an older on-disk cache if localhost is busy.
+          if (payload?.config && typeof payload.config === "object") {
+            setConfig(payload.config);
+            setSectionPlaybackTimeline(normalizePlaybackTimeline(payload.config?.playbackTimeline));
+            lastConfigSyncAtRef.current = new Date().toISOString();
+            return;
+          }
           const loadedConfig = await loadConfig(setConfig);
           setSectionPlaybackTimeline(normalizePlaybackTimeline(loadedConfig?.playbackTimeline));
           lastConfigSyncAtRef.current = new Date().toISOString();
