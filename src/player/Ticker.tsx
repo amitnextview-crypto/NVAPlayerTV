@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, View, Dimensions, Text, Easing } from "react-native";
+import { Animated, View, Text, Easing, useWindowDimensions } from "react-native";
 
 export default function Ticker({ ticker }: any) {
-  const { width } = Dimensions.get("window");
+  const { width } = useWindowDimensions();
   const tickerText = String(ticker?.text || "");
   const loopText = `${tickerText}     •     `;
   const fontSize = Number(ticker?.fontSize || 24);
@@ -19,6 +19,12 @@ export default function Ticker({ ticker }: any) {
   // Some TV firmware does not dispatch onTextLayout consistently. The fallback
   // is intentionally a valid animation width, not a reason to stop scrolling.
   const animationTextWidth = effectiveTextWidth || fallbackTextWidth;
+  // If a TV never reports text layout, fill the conservative fallback unit
+  // with several messages. Otherwise the unused right side of that unit looks
+  // like a long blank pause, especially on a wide landscape display.
+  const renderedLoopText = effectiveTextWidth > 0
+    ? loopText
+    : Array.from({ length: 4 }, () => loopText).join("");
   // Two copies leave a visible empty stretch when a short message is shown on
   // a large TV. Fill the viewport with repeated units plus an extra one for
   // the seamless hand-off at the animation boundary.
@@ -124,7 +130,7 @@ export default function Ticker({ ticker }: any) {
               fontWeight: "800",
             }}
           >
-            {loopText}
+            {renderedLoopText}
           </Text>
         ))}
       </Animated.View>
