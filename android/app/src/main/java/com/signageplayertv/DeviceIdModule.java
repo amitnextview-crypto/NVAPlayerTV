@@ -62,6 +62,7 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
     private static final String KEY_AUTO_REOPEN_ENABLED = "auto_reopen_enabled";
     private static final String KEY_AUTO_REOPEN_MANUAL_OFF = "auto_reopen_manual_off";
     private static final String KEY_VIDEO_CACHE_MAX_BYTES = "video_cache_max_bytes";
+    private static final String KEY_APP_MODE = "app_mode";
     private static final int MAIN_REOPEN_REQ_CODE = 7201;
     private static final int SERVICE_REOPEN_REQ_CODE = 7202;
     private static final int PICK_MEDIA_REQ_CODE = 8101;
@@ -330,6 +331,24 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
     }
 
     @ReactMethod
+    public void setAppMode(String mode) {
+        String safeMode = String.valueOf(mode == null ? "" : mode).trim();
+        if (!"tvMode".equals(safeMode) && !"adminOnlyMode".equals(safeMode)) return;
+        reactContext.getApplicationContext()
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_APP_MODE, safeMode)
+                .commit();
+    }
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    public String getAppMode() {
+        return reactContext.getApplicationContext()
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_APP_MODE, "");
+    }
+
+    @ReactMethod
     public void setVideoCacheMaxBytes(double bytes) {
         long value = (long) bytes;
         if (value < 64L * 1024 * 1024) value = 64L * 1024 * 1024;
@@ -543,12 +562,14 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
                 boolean preservedAutoReopen = kioskPrefs.getBoolean(KEY_AUTO_REOPEN_ENABLED, true);
                 boolean preservedManualOff = kioskPrefs.getBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, false);
                 long preservedVideoCacheMaxBytes = kioskPrefs.getLong(KEY_VIDEO_CACHE_MAX_BYTES, 0L);
+                String preservedAppMode = kioskPrefs.getString(KEY_APP_MODE, "");
                 kioskPrefs
                         .edit()
                         .clear()
                         .putBoolean(KEY_AUTO_REOPEN_ENABLED, preservedAutoReopen)
                         .putBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, preservedManualOff)
                         .putLong(KEY_VIDEO_CACHE_MAX_BYTES, preservedVideoCacheMaxBytes)
+                        .putString(KEY_APP_MODE, preservedAppMode)
                         .apply();
             } catch (Exception ignored) {
             }

@@ -21,8 +21,8 @@ import {
 type Props = {
   visible: boolean;
   onClose: () => void;
-  view: "access" | "cms";
-  onViewChange: (view: "access" | "cms") => void;
+  view: "access" | "cms" | "adminCms";
+  onViewChange: (view: "access" | "cms" | "adminCms") => void;
   orientation?: string;
 };
 
@@ -62,6 +62,9 @@ export default function AdminCmsPanel({
   if (!visible) return null;
 
   const nativeTvCmsUrl = `${cmsUrl}${cmsUrl.includes("?") ? "&" : "?"}tv=1&ori=${encodeURIComponent(String(orientation || "horizontal"))}`;
+  const browserCmsUrl = cmsUrl;
+  const isAdminCms = view === "adminCms";
+  const activeCmsUrl = isAdminCms ? browserCmsUrl : nativeTvCmsUrl;
 
   const postWebEvent = (type: string, payload: Record<string, any>) => {
     const script = `
@@ -121,17 +124,21 @@ export default function AdminCmsPanel({
 
   return (
     <Animated.View style={[styles.overlay, { transform: [{ translateX: slide }] }]}>
-      {view === "cms" ? (
+      {view === "cms" || view === "adminCms" ? (
         <View style={styles.fullscreenWrap}>
           <View style={[styles.header, isCompactScreen ? styles.headerCompact : null]}>
             <View style={styles.headerCopy}>
-              <Text style={[styles.title, isCompactScreen ? styles.titleCompact : null]}>CMS</Text>
+              <Text style={[styles.title, isCompactScreen ? styles.titleCompact : null]}>
+                {isAdminCms ? "Admin CMS" : "CMS"}
+              </Text>
               <Text style={[styles.subtitle, isCompactScreen ? styles.subtitleCompact : null]}>
-                TV CMS mirrors browser features and uses the native TV picker for uploads.
+                {isAdminCms
+                  ? "Full browser-style CMS running inside this TV app."
+                  : "TV CMS mirrors browser features and uses the native TV picker for uploads."}
               </Text>
             </View>
             <TouchableOpacity
-              onPress={onClose}
+              onPress={isAdminCms ? () => onViewChange("access") : onClose}
               onFocus={() => setBackFocused(true)}
               onBlur={() => setBackFocused(false)}
               activeOpacity={0.8}
@@ -157,9 +164,9 @@ export default function AdminCmsPanel({
             renderToHardwareTextureAndroid
           >
             <WebView
-              key={`${nativeTvCmsUrl}:${webMountKey}`}
+              key={`${activeCmsUrl}:${webMountKey}`}
               ref={webRef}
-              source={{ uri: nativeTvCmsUrl }}
+              source={{ uri: activeCmsUrl }}
               style={styles.webview}
               originWhitelist={["*"]}
               javaScriptEnabled
@@ -189,11 +196,26 @@ export default function AdminCmsPanel({
                       setTimeout(focusFirst, 120);
                     }, { once: true });
                   }
+                  function disableAutoReopenForFilePicker(event) {
+                    var target = event && event.target;
+                    if (target && target.matches && target.matches('input[type="file"]')) {
+                      window.ReactNativeWebView && window.ReactNativeWebView.postMessage('TV_FILE_PICKER_OPENING');
+                    }
+                  }
+                  // Capture before the browser performs the input's default
+                  // action, which launches Android's document picker.
+                  document.addEventListener('pointerdown', disableAutoReopenForFilePicker, true);
+                  document.addEventListener('touchstart', disableAutoReopenForFilePicker, true);
+                  document.addEventListener('click', disableAutoReopenForFilePicker, true);
                 })();
                 true;
               `}
               onMessage={(event) => {
                 const raw = String(event?.nativeEvent?.data || "").trim();
+                if (raw === "TV_FILE_PICKER_OPENING") {
+                  setAutoReopenEnabled(false);
+                  return;
+                }
                 let parsed: any = null;
                 try {
                   parsed = raw.startsWith("{") ? JSON.parse(raw) : null;
@@ -216,7 +238,10 @@ export default function AdminCmsPanel({
                   return;
                 }
                 if (raw === "CONFIG_SAVED") {
-                  onClose();
+                  // Saving configuration (including after an upload) must not
+                  // dismiss the CMS. Keep the WebView open so the user can
+                  // finish the current upload workflow.
+                  return;
                 }
               }}
             />
@@ -262,6 +287,7 @@ export default function AdminCmsPanel({
             <CmsAccessCard
               compact
               onOpenCms={() => onViewChange("cms")}
+              onOpenAdminCms={() => onViewChange("adminCms")}
               preferredFocusTarget="openCms"
             />
           </ScrollView>

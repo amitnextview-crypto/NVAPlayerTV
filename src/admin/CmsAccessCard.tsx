@@ -17,12 +17,14 @@ import {
 type Props = {
   compact?: boolean;
   onOpenCms?: () => void;
-  preferredFocusTarget?: "openCms" | "saveName";
+  onOpenAdminCms?: () => void;
+  preferredFocusTarget?: "openCms" | "openAdminCms" | "saveName";
 };
 
 export default function CmsAccessCard({
   compact = false,
   onOpenCms,
+  onOpenAdminCms,
   preferredFocusTarget = "openCms",
 }: Props) {
   const { width, height } = useWindowDimensions();
@@ -31,6 +33,7 @@ export default function CmsAccessCard({
   const [info, setInfo] = useState<CmsAccessInfo>(getCmsAccessInfo());
   const [nameInput, setNameInput] = useState(info.deviceName || "");
   const [openFocused, setOpenFocused] = useState(false);
+  const [openAdminFocused, setOpenAdminFocused] = useState(false);
   const [saveFocused, setSaveFocused] = useState(false);
   const accessUrl = info.publicUrl || info.localUrl;
   const displayIp =
@@ -116,6 +119,23 @@ export default function CmsAccessCard({
             hasTVPreferredFocus={preferredFocusTarget === "openCms"}
           >
             <Text style={styles.openBtnText}>Open CMS</Text>
+          </Pressable>
+        )}
+        {!!onOpenAdminCms && (
+          <Pressable
+            onPress={onOpenAdminCms}
+            onFocus={() => setOpenAdminFocused(true)}
+            onBlur={() => setOpenAdminFocused(false)}
+            style={({ pressed }) => [
+              styles.openBtn,
+              openAdminFocused ? styles.focusedActionBtn : null,
+              pressed ? styles.openBtnActive : null,
+            ]}
+            focusable
+            accessible
+            hasTVPreferredFocus={preferredFocusTarget === "openAdminCms"}
+          >
+            <Text style={styles.openBtnText}>Open Admin CMS</Text>
           </Pressable>
         )}
       </View>

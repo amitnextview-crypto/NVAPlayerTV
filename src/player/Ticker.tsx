@@ -6,17 +6,23 @@ export default function Ticker({ ticker }: any) {
   const tickerText = String(ticker?.text || "");
   const loopText = `${tickerText}     •     `;
   const fontSize = Number(ticker?.fontSize || 24);
-  const translateX = useRef(new Animated.Value(width)).current;
+  // Start on-screen while native layout measures the first copy.
+  const translateX = useRef(new Animated.Value(0)).current;
   const [textWidth, setTextWidth] = useState(0);
   const lastMeasuredRef = useRef(0);
-
-  // Android TV's onTextLayout is not guaranteed to fire on every device.
-  // This conservative fallback keeps the message visible immediately; when a
-  // native measurement arrives it can only make the scroll distance longer.
-  const estimatedTextWidth = Math.ceil(
-    Math.max(1, Array.from(loopText).length) * Math.max(12, fontSize) * 1.5 + 48,
+  const effectiveTextWidth = Math.ceil(textWidth);
+  // Used only before native measurement arrives, so even a very long message
+  // receives enough layout width and cannot be clipped by the TV viewport.
+  const fallbackTextWidth = Math.ceil(
+    Math.max(1, Array.from(loopText).length) * Math.max(12, fontSize) * 2 + 64,
   );
-  const effectiveTextWidth = textWidth > 0 ? Math.ceil(textWidth) : estimatedTextWidth;
+  // Some TV firmware does not dispatch onTextLayout consistently. The fallback
+  // is intentionally a valid animation width, not a reason to stop scrolling.
+  const animationTextWidth = effectiveTextWidth || fallbackTextWidth;
+  // Two copies leave a visible empty stretch when a short message is shown on
+  // a large TV. Fill the viewport with repeated units plus an extra one for
+  // the seamless hand-off at the animation boundary.
+  const copyCount = Math.max(2, Math.ceil(width / animationTextWidth) + 2);
 
   // Do not reuse a width measured for a smaller font or older message.
   // This prevents a short/stale animation when CMS updates the ticker live.
@@ -31,15 +37,15 @@ export default function Ticker({ ticker }: any) {
     const speed = ticker.speed ?? 6;
 
     const pixelsPerSecond = 40 + speed * 15;
-    const duration = Math.max(1800, (effectiveTextWidth / pixelsPerSecond) * 1000);
+    const duration = Math.max(1800, (animationTextWidth / pixelsPerSecond) * 1000);
 
-    // Both units contain the same message. At the end of one unit, the next
+    // Every unit contains the same message. At the end of one unit, the next
     // is at the exact same screen position, so looping creates no blank gap.
     translateX.setValue(0);
 
     const animation = Animated.loop(
       Animated.timing(translateX, {
-        toValue: -effectiveTextWidth,
+        toValue: -animationTextWidth,
         duration: duration,
         easing: Easing.linear,
         useNativeDriver: true,
@@ -50,7 +56,7 @@ export default function Ticker({ ticker }: any) {
 
     return () => animation.stop();
 
-  }, [effectiveTextWidth, ticker?.speed, tickerText, translateX, width]);
+  }, [animationTextWidth, ticker?.speed, tickerText, translateX, width]);
 
   if (!tickerText) return null;
 
@@ -75,17 +81,17 @@ export default function Ticker({ ticker }: any) {
           fontWeight: "800",
           letterSpacing: 0.6,
         }}
-        onTextLayout={(e) => {
-          const lines = Array.isArray(e?.nativeEvent?.lines) ? e.nativeEvent.lines : [];
-          // This invisible text is deliberately allowed to wrap. Adding each
-          // laid-out line gives the full glyph width, rather than the first
-          // screen-wide line that caused the visible ticker to be cut off.
+        onTextLayout={(event) => {
+          // This copy can wrap; adding all line widths gives the width of the
+          // complete message rather than the width of the TV screen.
+          const lines = Array.isArray(event?.nativeEvent?.lines)
+            ? event.nativeEvent.lines
+            : [];
           const widthValue = lines.reduce(
             (total: number, line: any) => total + Number(line?.width || 0),
             0,
           );
-          if (!widthValue) return;
-          if (Math.abs(widthValue - lastMeasuredRef.current) < 1) return;
+          if (!widthValue || Math.abs(widthValue - lastMeasuredRef.current) < 1) return;
           lastMeasuredRef.current = widthValue;
           setTextWidth(widthValue);
         }}
@@ -99,15 +105,15 @@ export default function Ticker({ ticker }: any) {
           alignSelf: "flex-start",
         }}
       >
-        {[0, 1].map((copy) => (
+        {Array.from({ length: copyCount }, (_, copy) => (
           <Text
             key={copy}
             numberOfLines={1}
             ellipsizeMode="clip"
             style={{
-              // Give each rendered unit its full width. This prevents a
-              // large font from being clipped to the TV viewport.
-              width: effectiveTextWidth,
+              // Android may otherwise constrain long row children to the TV
+              // viewport. Give every unit the full measured message width.
+              width: animationTextWidth,
               flexShrink: 0,
               color: ticker.color || "#fff",
               fontSize,

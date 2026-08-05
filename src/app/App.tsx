@@ -18,9 +18,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import RNFS from "react-native-fs";
 import { io, Socket } from "socket.io-client";
 import AdminButton from "../admin/AdminButton";
+import AdminOnlyScreen from "../admin/AdminOnlyScreen";
 import AdminCmsPanel from "../admin/AdminCmsPanel";
 import CmsAccessCard from "../admin/CmsAccessCard";
 import PlayerScreen from "../player/PlayerScreen";
+import SetupScreen from "../setup/SetupScreen";
 import { loadConfig } from "../services/configService";
 import { resolveScheduledConfig } from "../services/scheduleService";
 import {
@@ -63,6 +65,7 @@ import {
   openOverlayPermissionSettings,
   openNextMissingSpecialPermission,
 } from "../services/storagePermissionService";
+import { getAppMode, saveAppMode, type AppMode } from "../services/setupService";
 
 let socket: Socket | null = null;
 const USE_EMBEDDED_CMS = true;
@@ -181,13 +184,19 @@ async function unlinkPathIfExists(targetPath: string) {
 const PRESERVED_ASYNC_KEYS = new Set([
   "license_key_v1",
   "license_device_id_v1",
+  // Keep the first-run choice with the licence identity when CMS deep-clear
+  // removes playback/configuration data.
+  "@app_mode",
+  "@app_setup_completed",
   "tvCmsActiveGroupId",
 ]);
 
 export default function App() {
   const [bootReady, setBootReady] = useState(false);
+  const [setupReady, setSetupReady] = useState(false);
+  const [appMode, setAppMode] = useState<AppMode | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
-  const [adminInitialView, setAdminInitialView] = useState<"access" | "cms">("access");
+  const [adminInitialView, setAdminInitialView] = useState<"access" | "cms" | "adminCms">("access");
   const [ready, setReady] = useState(false);
   const [config, setConfig] = useState<any>(null);
   const [scheduleClockTick, setScheduleClockTick] = useState(() => Date.now());
@@ -301,7 +310,27 @@ export default function App() {
   });
   const specialPermissionActivePromptRef = useRef<"" | "manageAllFiles" | "overlay">("");
 
-  const openAdminPanel = (view: "access" | "cms", options: { openedByBack?: boolean } = {}) => {
+  useEffect(() => {
+    let mounted = true;
+    getAppMode()
+      .then((mode) => {
+        if (mounted) setAppMode(mode);
+      })
+      .catch(() => {
+        if (mounted) setAppMode(null);
+      })
+      .finally(() => {
+        if (mounted) setSetupReady(true);
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  const selectAppMode = async (mode: AppMode) => {
+    await saveAppMode(mode);
+    setAppMode(mode);
+  };
+
+  const openAdminPanel = (view: "access" | "cms" | "adminCms", options: { openedByBack?: boolean } = {}) => {
     setAdminInitialView(view);
     setShowAdmin(true);
     adminOpenedByBackRef.current = !!options.openedByBack;
@@ -2248,6 +2277,18 @@ export default function App() {
     );
   }
 
+  if (!setupReady) {
+    return (
+      <View style={styles.connectRoot}>
+        <Text style={styles.connectTitle}>Preparing app...</Text>
+      </View>
+    );
+  }
+
+  if (!appMode) {
+    return <SetupScreen onSelectMode={selectAppMode} />;
+  }
+
   if (!licenseReady) {
     return (
       <View style={styles.connectRoot}>
@@ -2318,6 +2359,10 @@ export default function App() {
         </View>
       </View>
     );
+  }
+
+  if (appMode === "adminOnlyMode") {
+    return <AdminOnlyScreen />;
   }
 
   const hideAdminButtons =
