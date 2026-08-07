@@ -20,10 +20,12 @@ import { io, Socket } from "socket.io-client";
 import AdminButton from "../admin/AdminButton";
 import AdminOnlyScreen from "../admin/AdminOnlyScreen";
 import AdminCmsPanel from "../admin/AdminCmsPanel";
+import UsbSettingsPanel from "../admin/UsbSettingsPanel";
 import CmsAccessCard from "../admin/CmsAccessCard";
 import PlayerScreen from "../player/PlayerScreen";
 import SetupScreen from "../setup/SetupScreen";
 import { loadConfig } from "../services/configService";
+import { writeConfig } from "../utils/fileSystem";
 import { resolveScheduledConfig } from "../services/scheduleService";
 import {
   clearEmbeddedCmsState,
@@ -105,6 +107,7 @@ const INITIAL_SOURCE_SNAPSHOT: SourceSnapshot = {
   usbPlaylist: [],
   usbMountPath: "",
   usbSuppressed: false,
+  usbSourceType: "usb",
 };
 
 type RuntimeErrorInfo = {
@@ -196,6 +199,7 @@ export default function App() {
   const [setupReady, setSetupReady] = useState(false);
   const [appMode, setAppMode] = useState<AppMode | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showUsbSettings, setShowUsbSettings] = useState(false);
   const [adminInitialView, setAdminInitialView] = useState<"access" | "cms" | "adminCms">("access");
   const [ready, setReady] = useState(false);
   const [config, setConfig] = useState<any>(null);
@@ -348,17 +352,18 @@ export default function App() {
   const handleTvBackAction = useCallback(() => {
     const now = Date.now();
 
+    if (showUsbSettings) {
+      setShowUsbSettings(false);
+      return true;
+    }
+
     if (showAdmin) {
-      if (adminInitialView === "cms") {
-        closeAdminPanel();
-        return true;
-      }
       if (
         adminOpenedByBackRef.current &&
         lastTvBackPressAtRef.current > 0 &&
         now - lastTvBackPressAtRef.current <= TV_BACK_DOUBLE_PRESS_MS
       ) {
-        openAdminPanel("cms");
+        openAdminPanel("access", { openedByBack: true });
         return true;
       }
       closeAdminPanel();
@@ -366,14 +371,14 @@ export default function App() {
     }
 
     if (now - lastTvBackPressAtRef.current <= TV_BACK_DOUBLE_PRESS_MS) {
-      openAdminPanel("cms");
+      openAdminPanel("access", { openedByBack: true });
       return true;
     }
 
     lastTvBackPressAtRef.current = now;
     openAdminPanel("access", { openedByBack: true });
     return true;
-  }, [adminInitialView, showAdmin]);
+  }, [showAdmin, showUsbSettings]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", handleTvBackAction);
@@ -398,14 +403,18 @@ export default function App() {
     const sub = emitter.addListener("tvRemoteKey", (event: any) => {
       const eventType = String(event?.eventType || "").toLowerCase();
       const keyAction = Number(event?.eventKeyAction ?? -1);
-      if (eventType !== "back") return;
       if (keyAction !== -1 && keyAction !== 1) return;
+      if (eventType === "down" && sourceSnapshot.activeSource === "USB" && !showAdmin && !showUsbSettings) {
+        setShowUsbSettings(true);
+        return;
+      }
+      if (eventType !== "back") return;
       handleTvBackAction();
     });
     return () => {
       sub.remove();
     };
-  }, [handleTvBackAction]);
+  }, [handleTvBackAction, showAdmin, showUsbSettings, sourceSnapshot.activeSource]);
 
   useEffect(() => {
     offlineNoticeRef.current = offlineNotice;
@@ -922,7 +931,10 @@ export default function App() {
       const status = getSpecialAppPermissionStatus();
       let changed = false;
 
-      if (status.manageAllFiles || returnedFrom === "manageAllFiles") {
+      // Returning from Android settings is not proof that the user granted
+      // all-files access. Only persist the handled state after it is granted,
+      // otherwise Main storage/TvAd remains unreadable on the next scan.
+      if (status.manageAllFiles) {
         if (!specialPermissionHandledRef.current.manageAllFiles) {
           specialPermissionHandledRef.current.manageAllFiles = true;
           changed = true;
@@ -2365,8 +2377,9 @@ export default function App() {
     return <AdminOnlyScreen />;
   }
 
-  const hideAdminButtons =
-    sourceSnapshot.usbMounted;
+  // Keep the CMS/admin controls available through their existing non-visual flows,
+  // but do not render either overlay button on the player screen.
+  const hideAdminButtons = true;
 
   if (!ready) {
     const ringSpin = spinValue.interpolate({
@@ -2438,7 +2451,7 @@ export default function App() {
   };
   const scheduledConfig = resolveScheduledConfig(safeConfig, new Date(scheduleClockTick));
   const effectiveConfig = sourceSnapshot.activeSource === "USB"
-    ? playbackControllerRef.current.buildUsbConfig(scheduledConfig.config)
+    ? playbackControllerRef.current.buildUsbConfig(scheduledConfig.config, sourceSnapshot.usbPlaylist)
     : scheduledConfig.config;
   effectiveConfig.__scheduleRuntime = {
     enabled: scheduledConfig.enabled,
@@ -2556,6 +2569,12 @@ export default function App() {
     rotation = "180deg";
   }
 
+  const saveUsbSettings = async (nextConfig: any) => {
+    setConfig(nextConfig);
+    await writeConfig(nextConfig);
+    setShowUsbSettings(false);
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <View
@@ -2583,6 +2602,15 @@ export default function App() {
             onPlaybackError={handlePlaybackError}
           />
         </PlayerErrorBoundary>
+        {sourceSnapshot.activeSource === "USB" && !showAdmin && !showUsbSettings ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${sourceSnapshot.usbSourceType === "tvad" ? "Storage" : "USB"} settings`}
+            focusable={false}
+            onPress={() => setShowUsbSettings(true)}
+            style={StyleSheet.absoluteFill}
+          />
+        ) : null}
         {!hideAdminButtons ? (
           <AdminButton
             side="right"
@@ -2605,6 +2633,14 @@ export default function App() {
           onViewChange={setAdminInitialView}
           onClose={closeAdminPanel}
           orientation={orientation}
+        />
+        <UsbSettingsPanel
+          visible={showUsbSettings}
+          config={config || safeConfig}
+          activeSectionCount={new Set(sourceSnapshot.usbPlaylist.map((item: any) => Number(item?.section || 1))).size}
+          sourceName={sourceSnapshot.usbSourceType === "tvad" ? "Storage" : "USB"}
+          onClose={() => setShowUsbSettings(false)}
+          onSave={saveUsbSettings}
         />
         {offlineNotice ? (
           <View style={styles.offlineToast}>

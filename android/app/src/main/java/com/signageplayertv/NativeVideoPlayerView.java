@@ -39,12 +39,12 @@ import java.io.File;
 public class NativeVideoPlayerView extends FrameLayout implements LifecycleEventListener {
     private static final long SEEK_TOLERANCE_MS = 1200L;
     private static final long BUFFER_STALL_RECOVERY_MS = 15000L;
-    private static final long RECOVERY_THROTTLE_MS = 5000L;
     private final ReactContext reactContext;
     private final StyledPlayerView playerView;
     private ExoPlayer player;
     private String src = "";
     private boolean muted = true;
+    private float volume = 1f;
     private boolean paused = false;
     private boolean repeat = false;
     private long startPositionMs = 0L;
@@ -54,14 +54,14 @@ public class NativeVideoPlayerView extends FrameLayout implements LifecycleEvent
     private boolean attached = false;
     private boolean startPositionApplied = false;
     private long lastKnownPositionMs = 0L;
-    private long lastRecoveryAtMs = 0L;
-    private int recoveryCount = 0;
     private boolean bufferingActive = false;
     private final Runnable bufferingRecoveryRunnable = new Runnable() {
         @Override
         public void run() {
             if (!attached || player == null || src.isEmpty() || !bufferingActive) return;
-            attemptRecovery("buffer-stall");
+            WritableMap event = Arguments.createMap();
+            event.putString("message", "buffer-stall");
+            dispatchEvent("topError", event);
         }
     };
     private final Handler progressHandler = new Handler(Looper.getMainLooper());
@@ -172,14 +172,20 @@ public class NativeVideoPlayerView extends FrameLayout implements LifecycleEvent
             return;
         }
         this.src = next;
-        recoveryCount = 0;
         prepareIfPossible();
     }
 
     public void setMuted(boolean value) {
         this.muted = value;
         if (player != null) {
-            player.setVolume(value ? 0f : 1f);
+            player.setVolume(value ? 0f : volume);
+        }
+    }
+
+    public void setVolume(float value) {
+        this.volume = Math.max(0f, Math.min(1f, value));
+        if (player != null) {
+            player.setVolume(muted ? 0f : volume);
         }
     }
 
@@ -269,7 +275,7 @@ public class NativeVideoPlayerView extends FrameLayout implements LifecycleEvent
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(upstreamFactory))
                 .build();
         playerView.setPlayer(player);
-        player.setVolume(muted ? 0f : 1f);
+        player.setVolume(muted ? 0f : volume);
         player.setRepeatMode(repeat ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
         player.setWakeMode(C.WAKE_MODE_NETWORK);
         player.addListener(new Player.Listener() {
@@ -320,7 +326,6 @@ public class NativeVideoPlayerView extends FrameLayout implements LifecycleEvent
                 WritableMap event = Arguments.createMap();
                 event.putString("message", buildErrorMessage(error));
                 dispatchEvent("topError", event);
-                attemptRecovery("player-error");
             }
         });
     }
@@ -337,28 +342,6 @@ public class NativeVideoPlayerView extends FrameLayout implements LifecycleEvent
         } catch (Exception ignored) {
             return message;
         }
-    }
-
-    private void attemptRecovery(String reason) {
-        if (player == null || src.isEmpty()) return;
-        long now = System.currentTimeMillis();
-        if (now - lastRecoveryAtMs < RECOVERY_THROTTLE_MS) return;
-        lastRecoveryAtMs = now;
-        recoveryCount += 1;
-        long recoverPosition = Math.max(lastKnownPositionMs, Math.max(0L, player.getCurrentPosition()));
-        startPositionMs = recoverPosition;
-        startPositionApplied = false;
-        preparedSrc = "";
-        bufferingActive = false;
-        progressHandler.removeCallbacks(bufferingRecoveryRunnable);
-        try {
-            player.stop();
-        } catch (Exception ignored) {
-        }
-        WritableMap event = Arguments.createMap();
-        event.putString("message", "native-recovery:" + reason + ":count=" + recoveryCount);
-        dispatchEvent("topError", event);
-        prepareIfPossible();
     }
 
     private void prepareIfPossible() {

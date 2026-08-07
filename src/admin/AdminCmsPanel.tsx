@@ -253,7 +253,7 @@ export default function AdminCmsPanel({
             <View style={styles.headerCopy}>
               <Text style={[styles.title, isCompactScreen ? styles.titleCompact : null]}>QR Access</Text>
               <Text style={[styles.subtitle, isCompactScreen ? styles.subtitleCompact : null]}>
-                Use remote arrows to move focus. Press OK to open CMS.
+                Use remote arrows to move focus.
               </Text>
             </View>
             <TouchableOpacity
@@ -286,9 +286,7 @@ export default function AdminCmsPanel({
           >
             <CmsAccessCard
               compact
-              onOpenCms={() => onViewChange("cms")}
-              onOpenAdminCms={() => onViewChange("adminCms")}
-              preferredFocusTarget="openCms"
+              preferredFocusTarget="saveName"
             />
           </ScrollView>
         </>

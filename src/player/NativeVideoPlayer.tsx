@@ -19,6 +19,7 @@ type Props = {
   style?: StyleProp<ViewStyle>;
   rotation?: number;
   muted?: boolean;
+  volume?: number;
   paused?: boolean;
   repeat?: boolean;
   startPositionMs?: number;

@@ -9,6 +9,7 @@ export type UsbState = {
   mountPath: string;
   mountPaths: string[];
   playlist: MediaItem[];
+  sourceType?: "usb" | "tvad";
   reason?: string;
 };
 
@@ -29,6 +30,7 @@ function normalizeUsbState(value: any): UsbState {
       ? value.mountPaths.map((entry: any) => String(entry || "")).filter(Boolean)
       : [],
     playlist: Array.isArray(value?.playlist) ? value.playlist : [],
+    sourceType: value?.sourceType === "tvad" ? "tvad" : "usb",
     reason: value?.reason ? String(value.reason) : undefined,
   };
 }

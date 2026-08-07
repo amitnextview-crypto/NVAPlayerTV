@@ -334,7 +334,7 @@ export function setPlaybackOverride(sourceId: string, items: MediaItem[]) {
         .filter((item) => !!item && typeof item === "object")
         .map((item) => ({
           ...item,
-          section: 1,
+          section: Math.max(1, Math.min(3, Number(item.section || 1))),
         }))
     : [];
 
@@ -1183,9 +1183,9 @@ export async function getMediaFiles(sectionIndex = 0, playlistNames?: string[]) 
   };
 
   if (playbackOverride) {
-    const overrideSection = Math.max(1, Number(playbackOverride.items?.[0]?.section || 1));
-    if (sectionNo !== overrideSection) return [];
-    return playbackOverride.items;
+    return playbackOverride.items.filter(
+      (item) => Math.max(1, Number(item?.section || 1)) === sectionNo
+    );
   }
 
   try {

@@ -57,7 +57,6 @@ const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov", ".mkv", ".webm"]);
 const PPT_EXTENSIONS = new Set([".ppt", ".pptx", ".pptm", ".pps", ".ppsx", ".potx"]);
 const PPT_MARKER_NAME = ".ppt_marker";
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024 * 1024; // 50 GB
-const MAX_FILES_PER_UPLOAD = 120;
 const DISABLE_UPLOAD_TRANSCODE = String(process.env.DISABLE_UPLOAD_TRANSCODE || "1") !== "0";
 const DIRECT_PLAY_VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov", ".mkv", ".webm"]);
 const SAFE_DEVICE_RE = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -966,9 +965,6 @@ async function processIncomingSection(deviceId, section, tempSectionPath, reques
     } catch {
     }
   }
-  if (incomingHasVideo && anyOtherSectionHasVideoOrPpt(deviceId, section)) {
-    throw new Error("Video/PPT allowed in only one grid section. Remove PPT/video from all sections first.");
-  }
   if (incomingHasPpt && anyOtherSectionHasVideoOrPpt(deviceId, section)) {
     throw new Error("PPT/video allowed in only one grid section. Remove PPT/video from all sections first.");
   }
@@ -1008,41 +1004,6 @@ async function processIncomingSection(deviceId, section, tempSectionPath, reques
     }
   }
 
-  if (global.io) {
-    const baseSyncAt = Date.now() + 500;
-    const syncAt = baseSyncAt;
-    const timeline = updateSectionTimeline(deviceId, section, {
-      targetDevice: deviceId,
-      syncAt,
-      updatedAt: activation?.updatedAt || Date.now(),
-      cycleId: `${section}-${String(activation?.versionName || Date.now())}`,
-      fileCount: Array.isArray(activation?.activeFiles) ? activation.activeFiles.length : 0,
-      mediaSignature: Array.isArray(activation?.activeFiles)
-        ? activation.activeFiles.join("|")
-        : "",
-    });
-    if (deviceId === "all") {
-      const connectedIds = Object.keys(global.connectedDevices || {}).sort();
-      connectedIds.forEach((targetId, index) => {
-        const socketId = global.connectedDevices?.[targetId];
-        if (!socketId) return;
-        const targetSyncAt = baseSyncAt + index * 30000;
-        global.io.to(socketId).emit("media-updated", {
-          syncAt: targetSyncAt,
-          section,
-          timeline: {
-            ...timeline,
-            targetDevice: targetId,
-            syncAt: targetSyncAt,
-          },
-        });
-      });
-    } else if (global.connectedDevices?.[deviceId]) {
-      const socketId = global.connectedDevices[deviceId];
-      global.io.to(socketId).emit("media-updated", { syncAt, section, timeline });
-    }
-  }
-
   emitSectionUploadStatus(deviceId, section, "ready", "");
   return activation;
 }
@@ -1059,10 +1020,6 @@ router.post("/:deviceId/section/:section/chunk/init", (req, res) => {
     if (!files.length) {
       return res.status(400).json({ ok: false, error: "files-required" });
     }
-    if (files.length > MAX_FILES_PER_UPLOAD) {
-      return res.status(400).json({ ok: false, error: `Too many files. Max allowed is ${MAX_FILES_PER_UPLOAD} files.` });
-    }
-
     files.forEach(assertChunkFileAllowed);
     cleanupStaleIncomingDirs(deviceId, section);
 
@@ -1242,7 +1199,6 @@ router.post("/:deviceId/section/:section", (req, res, next) => {
       storage,
       limits: {
         fileSize: MAX_FILE_SIZE_BYTES,
-        files: MAX_FILES_PER_UPLOAD,
       },
       fileFilter: (_req, file, cb) => {
         const ext = path.extname(file.originalname || "").toLowerCase();
@@ -1274,8 +1230,6 @@ router.post("/:deviceId/section/:section", (req, res, next) => {
             err instanceof multer.MulterError
               ? err.code === "LIMIT_FILE_SIZE"
                 ? `File too large. Max allowed is ${Math.round(MAX_FILE_SIZE_BYTES / (1024 * 1024 * 1024))} GB per file.`
-                : err.code === "LIMIT_FILE_COUNT"
-                ? `Too many files. Max allowed is ${MAX_FILES_PER_UPLOAD} files.`
                 : humanizeUploadError(err, "Upload failed")
               : humanizeUploadError(err, "Upload failed");
 
@@ -1329,7 +1283,6 @@ router.post("/enterprise/section/:section", (req, res) => {
     storage,
     limits: {
       fileSize: MAX_FILE_SIZE_BYTES,
-      files: MAX_FILES_PER_UPLOAD,
     },
   }).array("files");
 

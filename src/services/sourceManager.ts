@@ -15,6 +15,7 @@ export type SourceSnapshot = {
   usbPlaylist: MediaItem[];
   usbMountPath: string;
   usbSuppressed: boolean;
+  usbSourceType: "usb" | "tvad";
 };
 
 type SourceListener = (snapshot: SourceSnapshot) => void;
@@ -27,6 +28,7 @@ function createSnapshot(state: InternalState): SourceSnapshot {
     usbPlaylist: state.usbPlaylist,
     usbMountPath: state.usbMountPath,
     usbSuppressed: state.usbSuppressed,
+    usbSourceType: state.usbSourceType,
   };
 }
 
@@ -38,6 +40,7 @@ type InternalState = {
   usbPlaylist: MediaItem[];
   usbMountPath: string;
   usbSuppressed: boolean;
+  usbSourceType: "usb" | "tvad";
 };
 
 export class SourceManager {

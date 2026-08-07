@@ -16,10 +16,11 @@ type Props = {
   styles: any;
   videoFade: Animated.Value;
   videoReloadToken: number;
-  videoViewType: string;
   effectiveVideoUri: string;
   resumePositionMs: number;
   mediaResizeMode: any;
+  videoVolume: number;
+  videoMuted: boolean;
   forceLocalRestart: boolean;
   pdfReloadToken: number;
   pdfSlotUrls: { a: string; b: string };
@@ -64,10 +65,11 @@ export default function SlideRendererMediaStage(props: Props) {
     styles,
     videoFade,
     videoReloadToken,
-    videoViewType,
     effectiveVideoUri,
     resumePositionMs,
     mediaResizeMode,
+    videoVolume,
+    videoMuted,
     forceLocalRestart,
     pdfReloadToken,
     pdfSlotUrls,
@@ -125,11 +127,12 @@ export default function SlideRendererMediaStage(props: Props) {
       <View style={mediaRotateLayerStyle}>
         <Animated.View style={[styles.media, styles.videoSurface, { opacity: videoFade }]}>
           <NativeVideoPlayer
-            key={`video-player-${videoReloadToken}-${String(videoViewType)}`}
+            key={`video-player-${videoReloadToken}`}
             src={effectiveVideoUri}
             style={styles.media}
             rotation={0}
-            muted={false}
+            muted={videoMuted}
+            volume={videoVolume}
             startPositionMs={resumePositionMs}
             resizeMode={mediaResizeMode}
             repeat={files.length === 1 && !forceLocalRestart}

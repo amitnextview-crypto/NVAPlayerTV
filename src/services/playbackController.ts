@@ -10,7 +10,22 @@ const INSTANT_STREAM_SOURCE_ID = "instant-stream";
 
 export class PlaybackController {
   playUsbPlaylist(playlist: MediaItem[]) {
-    setPlaybackOverride(USB_SOURCE_ID, playlist);
+    const activeSections = Array.from(
+      new Set(
+        playlist
+          .map((item) => Math.max(1, Math.min(3, Number(item?.section || 1))))
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a - b);
+    const sectionMap = new Map(activeSections.map((section, index) => [section, index + 1]));
+    setPlaybackOverride(
+      USB_SOURCE_ID,
+      playlist.map((item) => ({
+        ...item,
+        usbSection: Math.max(1, Math.min(3, Number(item?.section || 1))),
+        section: sectionMap.get(Math.max(1, Math.min(3, Number(item?.section || 1)))) || 1,
+      }))
+    );
   }
 
   stopUsbPlayback() {
@@ -25,26 +40,30 @@ export class PlaybackController {
     clearPlaybackOverride(INSTANT_STREAM_SOURCE_ID);
   }
 
-  buildUsbConfig(baseConfig: AppConfig | any) {
-    const sourceSection = baseConfig?.sections?.[0] || {};
+  buildUsbConfig(baseConfig: AppConfig | any, playlist: MediaItem[] = []) {
+    const activeSections = Array.from(
+      new Set(playlist.map((item) => Math.max(1, Math.min(3, Number(item?.section || 1)))))
+    ).sort((a, b) => a - b);
+    const sourceSections = activeSections.length ? activeSections : [1];
+    const sections = sourceSections.map((sectionNo) => {
+      const sourceSection = baseConfig?.sections?.[sectionNo - 1] || baseConfig?.sections?.[0] || {};
+      return {
+        ...sourceSection,
+        sourceType: "multimedia",
+        sourceUrl: "",
+        // Offline USB/TvAd media should fill its assigned grid without cropping.
+        usbFitMode: "stretch",
+        slideDuration: Number(sourceSection?.slideDuration || baseConfig?.slideDuration || 5),
+      };
+    });
     return {
       ...baseConfig,
       orientation: baseConfig?.orientation || "horizontal",
-      layout: "fullscreen",
+      layout: sections.length === 1 ? "fullscreen" : sections.length === 2 ? "grid2" : "grid3",
       bgColor: baseConfig?.bgColor || "#000000",
-      ticker: {
-        ...(baseConfig?.ticker || {}),
-        text: "",
-      },
-      sections: [
-        {
-          ...sourceSection,
-          sourceType: "multimedia",
-          sourceUrl: "",
-          usbFitMode: "cover",
-          slideDuration: Number(sourceSection?.slideDuration || baseConfig?.slideDuration || 5),
-        },
-      ],
+      // USB playback uses the same ticker configuration as CMS playback.
+      ticker: { ...(baseConfig?.ticker || {}) },
+      sections,
     };
   }
 }

@@ -9,6 +9,7 @@ import android.content.IntentFilter;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.DocumentsContract;
@@ -47,6 +48,7 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
     private static final long USB_DEBOUNCE_MS = 250L;
     private static final long USB_MOUNT_SETTLE_RESCAN_MS = 2000L;
     private static final String ADS_DIR_NAME = "Ads";
+    private static final String NVSIGN_DIR_NAME = "nvsign";
     private static final List<String> SUPPORTED_EXTENSIONS = Arrays.asList(
             ".mp4",
             ".m4v",
@@ -182,10 +184,6 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
     private UsbState scanUsbState() {
         List<File> mounts = resolveCandidateMounts();
         Log.d(TAG, "scanUsbState mountCount=" + mounts.size());
-        if (mounts.isEmpty()) {
-            return UsbState.empty();
-        }
-
         boolean mounted = false;
         List<String> checkedMounts = new ArrayList<>();
         for (File mountRoot : mounts) {
@@ -194,6 +192,12 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
             checkedMounts.add(mountPath);
             mounted = true;
             Log.d(TAG, "checking mount=" + mountPath);
+
+            List<UsbMediaItem> sectionedFiles = collectNvsignSectionFiles(mountRoot);
+            if (!sectionedFiles.isEmpty()) {
+                Log.d(TAG, "nvsign section file count for " + mountPath + " = " + sectionedFiles.size());
+                return UsbState.withMediaItems(mountPath, checkedMounts, sectionedFiles);
+            }
 
             List<UsbMediaItem> mediaStoreFiles = queryMediaStorePlaylist(mountRoot);
             Log.d(TAG, "mediaStore count for " + mountPath + " = " + mediaStoreFiles.size());
@@ -223,6 +227,33 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
             if (!playableFiles.isEmpty()) {
                 return UsbState.withPlaylist(mountPath, checkedMounts, playableFiles);
             }
+        }
+
+        // Internal storage fallback: /sdcard/nvsign/section1..3.
+        // USB always wins when it is present; main-storage nvsign is used only when no USB media exists.
+        try {
+            List<File> internalRoots = Arrays.asList(
+                    Environment.getExternalStorageDirectory(),
+                    new File("/storage/emulated/0"),
+                    new File("/sdcard"),
+                    new File("/mnt/sdcard")
+            );
+            for (File internalRoot : internalRoots) {
+                if (internalRoot == null || !internalRoot.exists()) continue;
+                List<UsbMediaItem> storageFiles = collectSectionedFiles(internalRoot, NVSIGN_DIR_NAME);
+                Log.d(TAG, "main nvsign direct scan root=" + internalRoot.getAbsolutePath() + " count=" + storageFiles.size());
+                if (storageFiles.isEmpty()) continue;
+                List<String> internalPaths = new ArrayList<>();
+                internalPaths.add(internalRoot.getAbsolutePath());
+                return UsbState.withMediaItems(internalRoot.getAbsolutePath(), internalPaths, storageFiles, "tvad");
+            }
+
+            List<UsbMediaItem> mediaStoreFiles = queryMediaStoreMainNvsignPlaylist();
+            if (!mediaStoreFiles.isEmpty()) {
+                return UsbState.withMediaItems("nvsign", new ArrayList<>(), mediaStoreFiles, "tvad");
+            }
+        } catch (Exception error) {
+            Log.w(TAG, "Main nvsign storage scan failed", error);
         }
 
         return UsbState.noPlayableMedia(checkedMounts, mounted);
@@ -480,6 +511,107 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
         return collected;
     }
 
+    /** Scoped-storage fallback for Main storage/nvsign/section1..3. */
+    private List<UsbMediaItem> queryMediaStoreMainNvsignPlaylist() {
+        List<UsbMediaItem> results = new ArrayList<>();
+        try {
+            ContentResolver resolver = reactContext.getContentResolver();
+            String[] projection = new String[] {
+                    MediaStore.Files.FileColumns._ID,
+                    MediaStore.Files.FileColumns.DISPLAY_NAME,
+                    MediaStore.Files.FileColumns.MIME_TYPE,
+                    MediaStore.Files.FileColumns.SIZE,
+                    MediaStore.Files.FileColumns.DATE_MODIFIED,
+                    MediaStore.Files.FileColumns.RELATIVE_PATH
+            };
+            String selection = "(" + MediaStore.Files.FileColumns.MEDIA_TYPE + "=? OR "
+                    + MediaStore.Files.FileColumns.MEDIA_TYPE + "=?) AND LOWER(COALESCE("
+                    + MediaStore.Files.FileColumns.RELATIVE_PATH + ", '')) LIKE ?";
+            String[] args = new String[] {
+                    String.valueOf(MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE),
+                    String.valueOf(MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO),
+                    "nvsign/%"
+            };
+            Uri collection = MediaStore.Files.getContentUri(
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ? MediaStore.VOLUME_EXTERNAL : "external"
+            );
+            Cursor cursor = resolver.query(collection, projection, selection, args,
+                    MediaStore.Files.FileColumns.DATE_MODIFIED + " ASC");
+            if (cursor == null) return results;
+            try {
+                int idIndex = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID);
+                int nameIndex = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME);
+                int mimeIndex = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE);
+                int sizeIndex = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE);
+                int modifiedIndex = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED);
+                int relativePathIndex = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.RELATIVE_PATH);
+                while (cursor.moveToNext()) {
+                    String relativePath = cursor.getString(relativePathIndex);
+                    int section = sectionFromMainNvsignPath(relativePath);
+                    String name = cursor.getString(nameIndex);
+                    long size = cursor.getLong(sizeIndex);
+                    if (section == 0 || size <= 0L || !isSupportedFile(String.valueOf(name).toLowerCase(Locale.US))) continue;
+                    long modifiedSeconds = cursor.getLong(modifiedIndex);
+                    results.add(new UsbMediaItem(name, "storage-nvsign://" + name,
+                            ContentUris.withAppendedId(collection, cursor.getLong(idIndex)).toString(), "",
+                            normalizeMimeType(name, cursor.getString(mimeIndex)), size,
+                            modifiedSeconds > 0L ? modifiedSeconds * 1000L : 0L, section));
+                }
+            } finally {
+                cursor.close();
+            }
+        } catch (Exception error) {
+            Log.w(TAG, "Main nvsign MediaStore query failed", error);
+        }
+        Collections.sort(results, Comparator.comparingInt((UsbMediaItem item) -> item.section)
+                .thenComparing(item -> item.name.toLowerCase(Locale.US)));
+        return results;
+    }
+
+    private int sectionFromMainNvsignPath(String relativePath) {
+        String path = String.valueOf(relativePath == null ? "" : relativePath).replace('\\', '/').toLowerCase(Locale.US);
+        for (int section = 1; section <= 3; section += 1) {
+            if (path.startsWith("nvsign/section" + section + "/")) return section;
+        }
+        return 0;
+    }
+
+    /** Reads USB/nvsign/section1, section2 and section3. Empty folders are ignored. */
+    private List<UsbMediaItem> collectNvsignSectionFiles(File mountRoot) {
+        return collectSectionedFiles(mountRoot, NVSIGN_DIR_NAME);
+    }
+
+    private List<UsbMediaItem> collectSectionedFiles(File mountRoot, String rootFolderName) {
+        List<UsbMediaItem> collected = new ArrayList<>();
+        File contentDir = resolveNamedDirectory(mountRoot, rootFolderName);
+        if (!contentDir.exists() || !contentDir.isDirectory()) return collected;
+
+        for (int section = 1; section <= 3; section += 1) {
+            File sectionDir = resolveNamedDirectory(contentDir, "section" + section);
+            if (!sectionDir.exists() || !sectionDir.isDirectory()) continue;
+            List<File> files = new ArrayList<>();
+            collectPlayableFilesRecursive(sectionDir, files);
+            for (File file : files) {
+                String name = file.getName();
+                String absolutePath = file.getAbsolutePath();
+                collected.add(new UsbMediaItem(
+                        name,
+                        "usb://" + absolutePath,
+                        Uri.fromFile(file).toString(),
+                        absolutePath,
+                        resolveMimeType(name),
+                        file.length(),
+                        file.lastModified(),
+                        section
+                ));
+            }
+        }
+        Collections.sort(collected, Comparator
+                .comparingInt((UsbMediaItem item) -> item.section)
+                .thenComparing(item -> item.name.toLowerCase(Locale.US)));
+        return collected;
+    }
+
     private void collectPlayableFilesRecursive(File dir, List<File> collected) {
         if (dir == null || collected == null) return;
         if (!dir.exists() || !dir.isDirectory()) return;
@@ -507,16 +639,20 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
     }
 
     private File resolveAdsDirectory(File mountRoot) {
-        if (mountRoot == null) return new File("/", ADS_DIR_NAME);
-        File exact = new File(mountRoot, ADS_DIR_NAME);
+        return resolveNamedDirectory(mountRoot, ADS_DIR_NAME);
+    }
+
+    private File resolveNamedDirectory(File parent, String directoryName) {
+        if (parent == null) return new File("/", directoryName);
+        File exact = new File(parent, directoryName);
         if (exact.exists() && exact.isDirectory()) {
             return exact;
         }
-        File[] children = mountRoot.listFiles();
+        File[] children = parent.listFiles();
         if (children != null) {
             for (File child : children) {
                 if (child == null || !child.isDirectory()) continue;
-                if (ADS_DIR_NAME.equalsIgnoreCase(child.getName())) {
+                if (directoryName.equalsIgnoreCase(child.getName())) {
                     return child;
                 }
             }
@@ -575,6 +711,7 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
         payload.putBoolean("mounted", state.mounted);
         payload.putBoolean("hasPlayableMedia", state.hasPlayableMedia);
         payload.putString("mountPath", state.mountPath);
+        payload.putString("sourceType", state.sourceType);
 
         WritableArray mountPaths = Arguments.createArray();
         for (String path : state.mountPaths) {
@@ -593,7 +730,7 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
             entry.putString("type", item.mimeType);
             entry.putDouble("size", (double) item.size);
             entry.putDouble("mtimeMs", (double) item.mtimeMs);
-            entry.putDouble("section", 1d);
+            entry.putDouble("section", (double) item.section);
             entry.putString("sourceId", "usb");
             playlist.pushMap(entry);
         }
@@ -607,28 +744,31 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
         final String mountPath;
         final List<String> mountPaths;
         final List<UsbMediaItem> playlist;
+        final String sourceType;
 
         UsbState(
                 boolean mounted,
                 boolean hasPlayableMedia,
                 String mountPath,
                 List<String> mountPaths,
-                List<UsbMediaItem> playlist
+                List<UsbMediaItem> playlist,
+                String sourceType
         ) {
             this.mounted = mounted;
             this.hasPlayableMedia = hasPlayableMedia;
             this.mountPath = mountPath == null ? "" : mountPath;
             this.mountPaths = mountPaths == null ? new ArrayList<>() : mountPaths;
             this.playlist = playlist == null ? new ArrayList<>() : playlist;
+            this.sourceType = "tvad".equalsIgnoreCase(sourceType) ? "tvad" : "usb";
         }
 
         static UsbState empty() {
-            return new UsbState(false, false, "", new ArrayList<>(), new ArrayList<>());
+            return new UsbState(false, false, "", new ArrayList<>(), new ArrayList<>(), "usb");
         }
 
         static UsbState noPlayableMedia(List<String> mountPaths, boolean mounted) {
             String firstMount = mountPaths != null && !mountPaths.isEmpty() ? mountPaths.get(0) : "";
-            return new UsbState(mounted, false, firstMount, mountPaths, new ArrayList<>());
+            return new UsbState(mounted, false, firstMount, mountPaths, new ArrayList<>(), "usb");
         }
 
         static UsbState withPlaylist(String mountPath, List<String> mountPaths, List<File> files) {
@@ -643,14 +783,19 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
                         absolutePath,
                         resolveMimeType(name),
                         file.length(),
-                        file.lastModified()
+                        file.lastModified(),
+                        1
                 ));
             }
-            return new UsbState(true, !playlist.isEmpty(), mountPath, mountPaths, playlist);
+            return new UsbState(true, !playlist.isEmpty(), mountPath, mountPaths, playlist, "usb");
         }
 
         static UsbState withMediaItems(String mountPath, List<String> mountPaths, List<UsbMediaItem> playlist) {
-            return new UsbState(true, playlist != null && !playlist.isEmpty(), mountPath, mountPaths, playlist);
+            return withMediaItems(mountPath, mountPaths, playlist, "usb");
+        }
+
+        static UsbState withMediaItems(String mountPath, List<String> mountPaths, List<UsbMediaItem> playlist, String sourceType) {
+            return new UsbState(true, playlist != null && !playlist.isEmpty(), mountPath, mountPaths, playlist, sourceType);
         }
 
         boolean sameAs(UsbState other) {
@@ -658,6 +803,7 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
             if (mounted != other.mounted) return false;
             if (hasPlayableMedia != other.hasPlayableMedia) return false;
             if (!mountPath.equals(other.mountPath)) return false;
+            if (!sourceType.equals(other.sourceType)) return false;
             if (mountPaths.size() != other.mountPaths.size()) return false;
             if (playlist.size() != other.playlist.size()) return false;
             for (int i = 0; i < mountPaths.size(); i += 1) {
@@ -678,6 +824,7 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
         final String mimeType;
         final long size;
         final long mtimeMs;
+        final int section;
 
         UsbMediaItem(
                 String name,
@@ -688,6 +835,19 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
                 long size,
                 long mtimeMs
         ) {
+            this(name, url, remoteUrl, localPath, mimeType, size, mtimeMs, 1);
+        }
+
+        UsbMediaItem(
+                String name,
+                String url,
+                String remoteUrl,
+                String localPath,
+                String mimeType,
+                long size,
+                long mtimeMs,
+                int section
+        ) {
             this.name = name == null ? "" : name;
             this.url = url == null ? "" : url;
             this.remoteUrl = remoteUrl == null ? "" : remoteUrl;
@@ -695,6 +855,7 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
             this.mimeType = mimeType == null ? "application/octet-stream" : mimeType;
             this.size = size;
             this.mtimeMs = mtimeMs;
+            this.section = Math.max(1, Math.min(3, section));
         }
 
         boolean sameAs(UsbMediaItem other) {
@@ -705,7 +866,8 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
                     && localPath.equals(other.localPath)
                     && mimeType.equals(other.mimeType)
                     && size == other.size
-                    && mtimeMs == other.mtimeMs;
+                    && mtimeMs == other.mtimeMs
+                    && section == other.section;
         }
     }
 

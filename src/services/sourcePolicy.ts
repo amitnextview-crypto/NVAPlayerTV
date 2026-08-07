@@ -11,6 +11,7 @@ export type SourcePolicyState = {
   usbPlaylist: MediaItem[];
   usbMountPath: string;
   usbSuppressed: boolean;
+  usbSourceType: "usb" | "tvad";
 };
 
 export function createInitialSourcePolicyState(): SourcePolicyState {
@@ -22,6 +23,7 @@ export function createInitialSourcePolicyState(): SourcePolicyState {
     usbPlaylist: [],
     usbMountPath: "",
     usbSuppressed: false,
+    usbSourceType: "usb",
   };
 }
 
@@ -51,6 +53,7 @@ export function reduceUsbState(
     usbHasPlayableMedia: !!usbState.hasPlayableMedia,
     usbPlaylist: Array.isArray(usbState.playlist) ? usbState.playlist : [],
     usbMountPath: mountPath,
+    usbSourceType: usbState.sourceType === "tvad" ? "tvad" : "usb",
   };
 
   if (!mounted || mountChanged) {

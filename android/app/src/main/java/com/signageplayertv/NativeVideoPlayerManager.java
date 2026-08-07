@@ -42,6 +42,11 @@ public class NativeVideoPlayerManager extends SimpleViewManager<NativeVideoPlaye
         view.setMuted(muted);
     }
 
+    @ReactProp(name = "volume", defaultFloat = 1f)
+    public void setVolume(NativeVideoPlayerView view, float volume) {
+        view.setVolume(volume);
+    }
+
     @ReactProp(name = "paused", defaultBoolean = false)
     public void setPaused(NativeVideoPlayerView view, boolean paused) {
         view.setPaused(paused);

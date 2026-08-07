@@ -198,6 +198,10 @@ override fun onWindowFocusChanged(hasFocus: Boolean) {
   }
 
   override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+      DeviceIdModule.emitRemoteKeyEvent("down", 1)
+      return true
+    }
     if (keyCode == KeyEvent.KEYCODE_BACK) {
       if (suppressNextBackKeyUp) {
         suppressNextBackKeyUp = false

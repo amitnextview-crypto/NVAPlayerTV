@@ -6,6 +6,8 @@ export interface SectionConfig {
   sourceTemplate?: OrderTemplateConfig | null;
   sourceTemplates?: OrderTemplateConfig[];
   usbFitMode?: "stretch" | "cover" | "contain";
+  volume?: number;
+  muted?: boolean;
 }
 
 export interface OrderTemplateConfig {

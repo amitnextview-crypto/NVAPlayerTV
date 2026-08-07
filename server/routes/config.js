@@ -152,6 +152,61 @@ function clearSectionMediaFiles(deviceId, section) {
   });
 }
 
+function resolveActiveSectionDirectory(deviceId, section) {
+  const { sectionBase, versionsDir, activeFile } = sectionStoragePaths(deviceId, section);
+  try {
+    const raw = String(fs.readFileSync(activeFile, "utf8") || "").trim();
+    const state = raw.startsWith("{") ? JSON.parse(raw) : null;
+    const activeVersion = String(state?.activeVersion || raw || "").trim();
+    const activeDir = activeVersion ? path.join(versionsDir, activeVersion) : "";
+    if (activeDir && fs.existsSync(activeDir)) return { dir: activeDir, activeFile, state };
+  } catch (_e) {
+  }
+  return fs.existsSync(sectionBase) ? { dir: sectionBase, activeFile, state: null } : null;
+}
+
+function deleteSectionMediaFiles(deviceId, section, requestedFiles) {
+  const safeSection = Math.max(1, Math.min(3, Number(section || 1)));
+  const resolved = resolveActiveSectionDirectory(deviceId, safeSection);
+  if (!resolved) return { deleted: [], timeline: null };
+  const allowed = new Set(
+    (Array.isArray(requestedFiles) ? requestedFiles : [])
+      .map((name) => path.basename(String(name || "")).trim())
+      .filter(Boolean)
+  );
+  const deleted = [];
+  for (const name of allowed) {
+    const fullPath = path.join(resolved.dir, name);
+    if (path.dirname(fullPath) !== resolved.dir) continue;
+    try {
+      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+        fs.rmSync(fullPath, { force: true });
+        deleted.push(name);
+      }
+    } catch (_e) {
+    }
+  }
+  if (resolved.state && Array.isArray(resolved.state.files)) {
+    resolved.state.files = resolved.state.files.filter((name) => !allowed.has(String(name || "")));
+    try {
+      fs.writeFileSync(resolved.activeFile, JSON.stringify(resolved.state), "utf8");
+    } catch (_e) {
+    }
+  }
+  const remaining = fs.existsSync(resolved.dir)
+    ? fs.readdirSync(resolved.dir).filter((name) => !name.startsWith(".") && fs.statSync(path.join(resolved.dir, name)).isFile())
+    : [];
+  const timeline = updateSectionTimeline(deviceId, safeSection, {
+    targetDevice: deviceId,
+    syncAt: Date.now(),
+    updatedAt: Date.now(),
+    cycleId: `${safeSection}-files-${Date.now()}`,
+    fileCount: remaining.length,
+    mediaSignature: remaining.sort().join("|"),
+  });
+  return { deleted, timeline };
+}
+
 const fallbackUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, FALLBACK_DIR),
@@ -247,6 +302,7 @@ router.post("/", (req, res) => {
 
     if (global.io) {
       global.io.emit("config-updated");
+      global.io.emit("media-updated", { syncAt: Date.now(), section: 0 });
     }
   } else {
     const devicePath = path.join(CONFIG_DIR, `${safeTarget}.json`);
@@ -255,6 +311,7 @@ router.post("/", (req, res) => {
     if (global.io && global.connectedDevices?.[safeTarget]) {
       const socketId = global.connectedDevices[safeTarget];
       global.io.to(socketId).emit("config-updated");
+      global.io.to(socketId).emit("media-updated", { syncAt: Date.now(), section: 0 });
     }
   }
 
@@ -377,6 +434,30 @@ router.post("/clear-section-media", (req, res) => {
   });
 
   return res.json({ success: true, section: safeSection, cleared: targets.length });
+});
+
+router.post("/delete-section-media", (req, res) => {
+  const safeTarget = sanitizeDeviceId(req.body?.targetDevice);
+  const safeSection = Math.max(1, Math.min(3, Number(req.body?.section || 1)));
+  const files = Array.isArray(req.body?.files) ? req.body.files : [];
+  if (!safeTarget || !files.length) {
+    return res.status(400).json({ success: false, error: "invalid-delete-request" });
+  }
+  const targets = safeTarget === "all"
+    ? ["all", ...Object.keys(global.connectedDevices || {})]
+    : [safeTarget];
+  let deleted = 0;
+  targets.forEach((deviceId) => {
+    const result = deleteSectionMediaFiles(deviceId, safeSection, files);
+    deleted += result.deleted.length;
+    const payload = { section: safeSection, syncAt: Date.now(), timeline: result.timeline };
+    if (deviceId === "all") {
+      if (global.io) global.io.emit("media-updated", payload);
+    } else if (global.io && global.connectedDevices?.[deviceId]) {
+      global.io.to(global.connectedDevices[deviceId]).emit("media-updated", payload);
+    }
+  });
+  return res.json({ success: true, section: safeSection, deleted });
 });
 
 router.post("/clear-cache", (req, res) => {

@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Dimensions, Easing, StyleSheet, Text, View } from "react-native";
-import { ViewType } from "react-native-video";
 import { WebView } from "react-native-webview";
 import RNFS from "react-native-fs";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -61,9 +60,6 @@ export default function SlideRenderer({
   const [index, setIndex] = useState(0);
   const [uri, setUri] = useState("");
   const [videoReloadToken, setVideoReloadToken] = useState(0);
-  const [videoViewType, setVideoViewType] = useState(
-    ViewType.TEXTURE
-  );
   const [videoBuffering, setVideoBuffering] = useState(false);
   const [showBufferIndicator, setShowBufferIndicator] = useState(false);
   const bufferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -299,6 +295,11 @@ export default function SlideRenderer({
     : [];
   const sourceTemplate = sourceTemplates[templateIndex % Math.max(1, sourceTemplates.length)] || null;
   const sectionResizeMode = sectionConfig?.usbFitMode || "stretch";
+  const configuredVolume = Number(sectionConfig?.volume);
+  const sectionVideoVolume = Number.isFinite(configuredVolume)
+    ? Math.max(0, Math.min(1, configuredVolume))
+    : 1;
+  const sectionVideoMuted = sectionConfig?.muted === true;
   const isMultiPaneLayout = config?.layout === "grid2" || config?.layout === "grid3";
   const mediaRotateLayerStyle = styles.fillLayer;
 
@@ -510,7 +511,6 @@ export default function SlideRenderer({
       sectionIndex,
       name: activeFile?.name || activeFile?.originalName || "",
       uri,
-      videoViewType,
     });
 
     if (isActiveVideo && errorKey) {
@@ -545,12 +545,15 @@ export default function SlideRenderer({
       return;
     }
 
+    // Grid videos can take longer for the TV decoder to become available.
+    // Recreate the same TextureView player instead of switching to a SurfaceView,
+    // which can produce a green/black overlay when several sections are composed.
     if (isActiveVideo && isMultiPaneLayout) {
       prepareVideoReloadFromCurrentPosition();
-      const alternateViewType =
-        videoViewType === ViewType.TEXTURE ? ViewType.SURFACE : ViewType.TEXTURE;
-      setVideoViewType(alternateViewType);
-      setVideoReloadToken((prev) => prev + 1);
+      setTimeout(() => {
+        if (!isMountedRef.current) return;
+        setVideoReloadToken((prev) => prev + 1);
+      }, 1200);
       return;
     }
 
@@ -574,7 +577,7 @@ export default function SlideRenderer({
         name: activeFile?.name || activeFile?.originalName || "",
         mediaType: activeFile?.type || "",
         uri,
-        viewType: String(videoViewType),
+        viewType: "texture",
         message: "Media could not be played",
       });
     }
@@ -665,7 +668,6 @@ export default function SlideRenderer({
     if (!files.length) return;
     videoRetryCountRef.current = 0;
     setVideoReloadToken(0);
-    setVideoViewType(ViewType.TEXTURE);
 
     const file = files[index];
     const identity = getMediaIdentity(file);
@@ -2108,10 +2110,11 @@ export default function SlideRenderer({
           styles={styles}
           videoFade={videoFade}
           videoReloadToken={videoReloadToken}
-          videoViewType={String(videoViewType)}
           effectiveVideoUri={effectiveVideoUri}
           resumePositionMs={resumePositionMs}
           mediaResizeMode={mediaResizeMode}
+          videoVolume={sectionVideoVolume}
+          videoMuted={sectionVideoMuted}
           forceLocalRestart={forceLocalRestart}
           pdfReloadToken={pdfReloadToken}
           pdfSlotUrls={pdfSlotUrls}
@@ -2439,6 +2442,7 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   cacheBadge: {
+    display: "none",
     position: "absolute",
     top: 6,
     right: 8,
@@ -2504,12 +2508,14 @@ const styles = StyleSheet.create({
     marginLeft: 0,
     marginRight: 0,
     alignSelf: "center",
+    display: "none",
   },
   cacheDotBlue: {
     backgroundColor: "rgba(90, 180, 255, 0.95)",
   },
   cacheDotGreen: {
     backgroundColor: "rgba(80, 220, 120, 0.98)",
+    display: "none",
   },
   cacheProgressFill: {
     height: 3,

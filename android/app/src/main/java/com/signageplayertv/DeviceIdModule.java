@@ -331,6 +331,22 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
     }
 
     @ReactMethod
+    public void openWifiSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_WIFI_SETTINGS);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            reactContext.getApplicationContext().startActivity(intent);
+        } catch (Exception ignored) {
+            try {
+                Intent fallback = new Intent(Settings.ACTION_SETTINGS);
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                reactContext.getApplicationContext().startActivity(fallback);
+            } catch (Exception ignoredAgain) {
+            }
+        }
+    }
+
+    @ReactMethod
     public void setAppMode(String mode) {
         String safeMode = String.valueOf(mode == null ? "" : mode).trim();
         if (!"tvMode".equals(safeMode) && !"adminOnlyMode".equals(safeMode)) return;

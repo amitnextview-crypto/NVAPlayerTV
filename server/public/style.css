@@ -1291,6 +1291,115 @@ input[type="range"] {
   display: none;
 }
 
+.section-files-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(10px, 3vw, 24px);
+  background: rgba(3, 8, 13, 0.78);
+  backdrop-filter: blur(5px);
+  isolation: isolate;
+  animation: overlayIn 160ms ease-out;
+}
+
+.section-files-panel {
+  box-sizing: border-box;
+  width: min(760px, 100%);
+  max-height: calc(100dvh - 20px);
+  overflow: auto;
+  border-radius: 18px;
+  border: 1px solid rgba(122, 194, 242, 0.26);
+  background: linear-gradient(145deg, rgba(9, 20, 31, 0.98), rgba(7, 15, 23, 0.96));
+  padding: 16px;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.48);
+  animation: modalIn 220ms ease-out;
+}
+
+.section-files-list { max-height: min(54vh, 560px); overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 14px; margin: 14px 0; padding: 2px 3px 2px 0; }
+.section-files-group { display: grid; gap: 9px; padding: 12px; border: 1px solid rgba(111, 197, 239, .28); border-radius: 12px; background: rgba(10, 27, 40, .7); }
+.section-files-group h4 { display: grid; grid-template-columns: max-content max-content; justify-content: space-between; align-items: center; gap: 8px; margin: 0; font-weight: 700; }
+.section-files-group h4 .section-files-title, .section-files-group h4 .section-files-count { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 0 11px; border: 1px solid rgba(111, 206, 250, .48); border-radius: 8px; background: linear-gradient(135deg, #17465f, #123246); color: #f7fcff; font-size: 16px; box-shadow: inset 0 1px rgba(255,255,255,.08); }
+.section-files-group h4 .section-files-count { background: linear-gradient(135deg, #126bb1, #1689e8); border-color: #62c9fa; color: #fff; font-size: 13px; white-space: nowrap; }
+.section-file-cards { display: grid; gap: 7px; }
+.section-files-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-width: 0; padding: 11px; border: 1px solid rgba(255,255,255,.13); border-radius: 9px; background: rgba(255,255,255,.035); cursor: pointer; transition: border-color .16s ease, background .16s ease; }
+.section-files-row:hover, .section-files-row:has(input:checked) { border-color: #39b8ef; background: rgba(22,137,232,.13); }
+.section-file-checkbox { grid-column: 1; grid-row: 1 / span 2; justify-self: center; width: 18px; height: 18px; margin: 0; accent-color: #1689e8; }
+.section-file-name { min-width: 0; display: grid; gap: 3px; }
+.section-file-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #edfaff; font-size: 15px; }
+.section-file-name em { font-style: normal; width: max-content; padding: 2px 6px; border-radius: 999px; color: #92cce8; background: rgba(64, 163, 211, .14); font-size: 10px; font-weight: 700; }
+.section-files-row small { white-space: nowrap; color: #a9c9db; font-size: 12px; }
+
+@media (max-width: 520px) {
+  .section-files-panel { padding: 13px; border-radius: 14px; }
+  .section-files-list { max-height: 58dvh; }
+  .section-files-row { padding: 9px; gap: 7px; }
+  .section-files-row small { font-size: 10px; }
+}
+
+.files-btn {
+  background: linear-gradient(135deg, #1689e8, #21b7d7);
+  color: #fff;
+  border-color: rgba(141, 225, 255, 0.78);
+  box-shadow: 0 5px 14px rgba(22, 137, 232, 0.26);
+}
+
+.files-btn:hover,
+.files-btn:focus-visible {
+  background: linear-gradient(135deg, #2b9ff2, #38c9e7);
+  border-color: #d4f7ff;
+}
+
+.section-heading-row, .section-heading-actions, .section-audio-controls, .mute-control { display: flex; align-items: center; flex-wrap: nowrap; }
+.section-heading-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px; margin-bottom: 10px; min-width: 0; }
+.section-heading-row h3 { margin: 0; }
+.section-heading-actions { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px; min-width: 0; }
+.section-audio-controls { justify-content: flex-end; gap: 5px; min-width: 0; padding: 4px 6px; border: 1px solid rgba(112,190,232,.22); border-radius: 8px; background: rgba(12,39,56,.64); font-size: 12px; white-space: nowrap; }
+.audio-label { color: #a8d9f1; font-weight: 600; }
+.audio-step-btn { width: 26px; height: 26px; padding: 0; border: 1px solid rgba(139,218,255,.35); border-radius: 6px; background: #16364a; color: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
+.audio-step-btn:hover, .audio-step-btn:focus-visible { border-color: #65d5ff; background: #1d6389; outline: none; }
+.section-audio-controls output { min-width: 37px; color: #fff; font-weight: 700; text-align: center; }
+.mute-control { gap: 4px; margin-left: 2px; color: #f0faff; white-space: nowrap; flex: 0 0 auto; }
+.mute-control input { width: 14px; height: 14px; margin: 0; accent-color: #1689e8; }
+
+@media (max-width: 620px) {
+  #uploadSections .section-heading-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  #uploadSections .section-heading-row::-webkit-scrollbar { display: none; }
+  #uploadSections .section-heading-row h3 { margin: 0; flex: 0 0 auto; }
+  #uploadSections .section-heading-actions { display: contents; }
+  #uploadSections .files-btn, #uploadSections .section-audio-controls { flex: 0 0 auto; }
+  .section-files-row {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+  .section-files-row small {
+    grid-column: 2;
+  }
+  .section-files-group h4 .section-files-title, .section-files-group h4 .section-files-count { min-height: 27px; padding: 0 8px; }
+  .section-files-group h4 .section-files-title { font-size: 13px; }
+  .section-files-group h4 .section-files-count { font-size: 11px; }
+  .section-file-name strong { font-size: 13px; }
+  .section-files-row small { font-size: 10px; }
+  .section-heading-row h3 { font-size: 13px; white-space: nowrap; }
+  .section-heading-row { gap: 4px; }
+  .files-btn { min-height: 27px; padding: 4px 7px; font-size: 11px; }
+  .section-audio-controls { gap: 1px; padding: 3px; font-size: 10px; }
+  .audio-label { font-size: 0; }
+  .audio-label::after { content: "Vol"; font-size: 10px; }
+  .audio-step-btn { width: 21px; height: 21px; font-size: 15px; }
+  .section-audio-controls output { min-width: 29px; font-size: 10px; }
+  .mute-control { gap: 2px; margin-left: 1px; font-size: 10px; }
+  .mute-control input { width: 11px; height: 11px; }
+}
+
 .upload-loader {
   position: fixed;
   inset: 0;

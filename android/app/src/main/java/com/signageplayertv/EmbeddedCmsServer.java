@@ -201,6 +201,10 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
                         // React event, which could otherwise leave one TV on a
                         // stale ticker configuration.
                         EmbeddedCmsRuntime.emitEvent("config-updated", payload);
+                        JSONObject mediaPayload = new JSONObject();
+                        mediaPayload.put("section", 0);
+                        mediaPayload.put("syncAt", System.currentTimeMillis());
+                        EmbeddedCmsRuntime.emitEvent("media-updated", mediaPayload);
                         return json(payload);
                     } catch (Exception e) {
                         return errorJson(Response.Status.INTERNAL_ERROR, "config-save-failed", e);
@@ -224,6 +228,9 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
             }
             if ("/config/clear-section-media".equals(uri) && Method.POST.equals(session.getMethod())) {
                 return handleClearSectionMedia(session);
+            }
+            if ("/config/delete-section-media".equals(uri) && Method.POST.equals(session.getMethod())) {
+                return handleDeleteSectionMedia(session);
             }
             if ("/config/bulk-action".equals(uri) && Method.POST.equals(session.getMethod())) {
                 return handleBulkAction(session);
@@ -309,29 +316,6 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         }
 
         activateIncomingSection(incomingDir, section);
-
-        long syncAt = System.currentTimeMillis();
-        JSONObject timeline = new JSONObject();
-        JSONArray mediaSignature = new JSONArray();
-        for (File file : staged) {
-            if (file != null) {
-                mediaSignature.put(file.getName());
-            }
-        }
-        timeline.put("section", section);
-        timeline.put("cycleId", section + "-local-upload-" + syncAt);
-        timeline.put("syncAt", syncAt);
-        timeline.put("updatedAt", syncAt);
-        timeline.put("fileCount", staged.size());
-        timeline.put("mediaSignature", mediaSignature.toString());
-        timeline.put("targetDevice", "local");
-
-        JSONObject payload = new JSONObject();
-        payload.put("section", section);
-        payload.put("count", staged.size());
-        payload.put("syncAt", syncAt);
-        payload.put("timeline", timeline);
-        EmbeddedCmsRuntime.emitEvent("media-updated", payload);
 
         JSONObject out = new JSONObject();
         out.put("success", true);
@@ -1163,16 +1147,6 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
 
         if (manifestFile.exists()) manifestFile.delete();
         activateIncomingSection(sessionDir, section);
-        emitLocalMediaUpdated(section, files);
-        File activeDir = resolveSectionDirectory(section);
-        for (int i = 0; i < files.length(); i += 1) {
-            JSONObject item = files.optJSONObject(i);
-            if (item != null && isVideoMedia(item.optString("storedName", ""))) {
-                File activeVideo = new File(activeDir, item.optString("storedName", ""));
-                emitPlayNow(section, manifest, item, activeVideo);
-                break;
-            }
-        }
 
         JSONObject out = new JSONObject();
         out.put("success", true);
@@ -1188,6 +1162,52 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         JSONObject out = new JSONObject();
         out.put("success", true);
         out.put("section", section);
+        return json(out);
+    }
+
+    private Response handleDeleteSectionMedia(IHTTPSession session) throws Exception {
+        JSONObject body = readJsonBody(session);
+        int section = Math.max(1, Math.min(3, safeInt(String.valueOf(body.opt("section")), 1)));
+        JSONArray requested = body.optJSONArray("files");
+        if (requested == null || requested.length() == 0) {
+            return withCors(newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json", "{\"success\":false,\"error\":\"no-files\"}"));
+        }
+        Set<String> names = new HashSet<>();
+        for (int i = 0; i < requested.length(); i += 1) {
+            String name = new File(requested.optString(i, "")).getName();
+            if (!name.isEmpty()) names.add(name);
+        }
+        File activeDir = resolveSectionDirectory(section);
+        int deleted = 0;
+        for (String name : names) {
+            File file = new File(activeDir, name);
+            if (file.getParentFile() != null && file.getParentFile().equals(activeDir) && file.exists() && file.isFile() && file.delete()) {
+                deleted += 1;
+            }
+        }
+        File activeFile = getSectionActiveFile(section);
+        JSONObject state = readActiveSectionState(activeFile);
+        if (state != null) {
+            JSONArray kept = new JSONArray();
+            JSONArray current = state.optJSONArray("files");
+            if (current != null) {
+                for (int i = 0; i < current.length(); i += 1) {
+                    String name = current.optString(i, "");
+                    if (!names.contains(name)) kept.put(name);
+                }
+            }
+            state.put("files", kept);
+            state.put("updatedAt", System.currentTimeMillis());
+            writeTextFile(activeFile, state.toString());
+        }
+        JSONObject payload = new JSONObject();
+        payload.put("section", section);
+        payload.put("syncAt", System.currentTimeMillis());
+        EmbeddedCmsRuntime.emitEvent("media-updated", payload);
+        JSONObject out = new JSONObject();
+        out.put("success", true);
+        out.put("section", section);
+        out.put("deleted", deleted);
         return json(out);
     }
 
@@ -2134,13 +2154,17 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         if (normalizedMime.startsWith("text/")
                 || normalizedMime.contains("javascript")
                 || normalizedMime.contains("json")) {
-            return withCors(newFixedLengthResponse(
+            Response response = newFixedLengthResponse(
                     Response.Status.OK,
                     mime,
                     new String(bytes, StandardCharsets.UTF_8)
-            ));
+            );
+            response.addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+            return withCors(response);
         }
-        return withCors(newFixedLengthResponse(Response.Status.OK, mime, new ByteArrayInputStream(bytes), bytes.length));
+        Response response = newFixedLengthResponse(Response.Status.OK, mime, new ByteArrayInputStream(bytes), bytes.length);
+        response.addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+        return withCors(response);
     }
 
     private byte[] readAssetBytes(String path) throws IOException {
