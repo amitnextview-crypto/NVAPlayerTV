@@ -201,10 +201,15 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
                         // React event, which could otherwise leave one TV on a
                         // stale ticker configuration.
                         EmbeddedCmsRuntime.emitEvent("config-updated", payload);
-                        JSONObject mediaPayload = new JSONObject();
-                        mediaPayload.put("section", 0);
-                        mediaPayload.put("syncAt", System.currentTimeMillis());
-                        EmbeddedCmsRuntime.emitEvent("media-updated", mediaPayload);
+                        if (body.optBoolean("restartAfterUpload", false)) {
+                            new Thread(() -> {
+                                try {
+                                    Thread.sleep(700L);
+                                } catch (InterruptedException ignored) {
+                                }
+                                restartAppInternal(false);
+                            }).start();
+                        }
                         return json(payload);
                     } catch (Exception e) {
                         return errorJson(Response.Status.INTERNAL_ERROR, "config-save-failed", e);

@@ -2575,6 +2575,16 @@ export default function App() {
     setShowUsbSettings(false);
   };
 
+  const refreshOfflineStorage = async () => {
+    const rawState = await refreshUsbState();
+    const playbackState = await getUsbStateForPlayback(rawState);
+    sourceManagerRef.current.onUsbState(playbackState);
+    return {
+      count: Array.isArray(playbackState?.playlist) ? playbackState.playlist.length : 0,
+      sourceName: playbackState?.sourceType === "tvad" ? "Storage" : "USB",
+    };
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <View
@@ -2641,6 +2651,7 @@ export default function App() {
           sourceName={sourceSnapshot.usbSourceType === "tvad" ? "Storage" : "USB"}
           onClose={() => setShowUsbSettings(false)}
           onSave={saveUsbSettings}
+          onRefreshStorage={refreshOfflineStorage}
         />
         {offlineNotice ? (
           <View style={styles.offlineToast}>

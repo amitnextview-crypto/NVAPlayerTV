@@ -280,6 +280,7 @@ router.post("/", (req, res) => {
   const rawTargetDevice =
     Object.prototype.hasOwnProperty.call(payload, "targetDevice") ? payload.targetDevice : "all";
   const { config } = payload;
+  const restartAfterUpload = payload.restartAfterUpload === true;
   const safeTarget = sanitizeDeviceId(rawTargetDevice);
   if (!safeTarget) {
     return res.status(400).json({ success: false, error: "invalid-device-id" });
@@ -302,7 +303,7 @@ router.post("/", (req, res) => {
 
     if (global.io) {
       global.io.emit("config-updated");
-      global.io.emit("media-updated", { syncAt: Date.now(), section: 0 });
+      if (restartAfterUpload) global.io.emit("restart-app");
     }
   } else {
     const devicePath = path.join(CONFIG_DIR, `${safeTarget}.json`);
@@ -311,7 +312,7 @@ router.post("/", (req, res) => {
     if (global.io && global.connectedDevices?.[safeTarget]) {
       const socketId = global.connectedDevices[safeTarget];
       global.io.to(socketId).emit("config-updated");
-      global.io.to(socketId).emit("media-updated", { syncAt: Date.now(), section: 0 });
+      if (restartAfterUpload) global.io.to(socketId).emit("restart-app");
     }
   }
 

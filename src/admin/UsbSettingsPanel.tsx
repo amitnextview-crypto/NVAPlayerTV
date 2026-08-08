@@ -8,6 +8,7 @@ type Props = {
   sourceName: "USB" | "Storage";
   onClose: () => void;
   onSave: (config: any) => void;
+  onRefreshStorage: () => Promise<{ count: number; sourceName: string }>;
 };
 
 const ORIENTATIONS = ["horizontal", "vertical", "reverse-horizontal", "reverse-vertical"];
@@ -21,9 +22,11 @@ const GRID_LAYOUTS = [
 const cycle = (items: string[], value: string) => items[(Math.max(0, items.indexOf(value)) + 1) % items.length];
 const label = (value: string) => value.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-export default function UsbSettingsPanel({ visible, config, activeSectionCount, sourceName, onClose, onSave }: Props) {
+export default function UsbSettingsPanel({ visible, config, activeSectionCount, sourceName, onClose, onSave, onRefreshStorage }: Props) {
   const [draft, setDraft] = useState<any>(config || {});
   const [focusedField, setFocusedField] = useState("");
+  const [scanStatus, setScanStatus] = useState("");
+  const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
     if (visible) setDraft(config || {});
@@ -52,6 +55,19 @@ export default function UsbSettingsPanel({ visible, config, activeSectionCount, 
   };
   const refreshApp = () => {
     (NativeModules as any)?.DeviceIdModule?.restartApp?.();
+  };
+  const refreshStorage = async () => {
+    if (scanning) return;
+    setScanning(true);
+    setScanStatus(`Scanning ${sourceName} in background…`);
+    try {
+      const result = await onRefreshStorage();
+      setScanStatus(`${result.sourceName} scan complete: ${result.count} playable file${result.count === 1 ? "" : "s"}.`);
+    } catch {
+      setScanStatus("Storage scan failed. Check folder access and try again.");
+    } finally {
+      setScanning(false);
+    }
   };
   const inputProps = (field: string) => ({
     onFocus: () => setFocusedField(field),
@@ -92,6 +108,7 @@ export default function UsbSettingsPanel({ visible, config, activeSectionCount, 
                 })}
               </View>
             </> : null}
+            <Pressable disabled={scanning} style={({ hovered, pressed }: any) => [styles.storageRefresh, (focusedField === "storage-refresh" || hovered || pressed) && styles.focused, scanning && styles.disabled]} onFocus={() => setFocusedField("storage-refresh")} onBlur={() => setFocusedField("")} onPress={refreshStorage}><Text style={styles.wifiText}>{scanning ? "Scanning Storage…" : "Refresh Storage"}</Text><Text style={styles.optionHint}>{scanStatus || "Rescan USB/internal nvsign folders without restarting the app."}</Text></Pressable>
             <Text style={styles.label}>Ticker text</Text>
             <TextInput value={String(draft?.ticker?.text || "")} onChangeText={(text) => setDraft((value: any) => ({ ...value, ticker: { ...(value.ticker || {}), text } }))} placeholder="Optional ticker message" placeholderTextColor="#7890a0" {...inputProps("ticker-text")} />
             <View style={styles.tickerGrid}>
@@ -121,9 +138,11 @@ const styles = StyleSheet.create({
   option: { borderRadius: 12, padding: 14, backgroundColor: "#12283a", borderWidth: 2, borderColor: "rgba(126,205,255,0.28)" }, autoLayout: { borderRadius: 12, padding: 14, backgroundColor: "#12283a", borderWidth: 1, borderColor: "rgba(126,205,255,0.28)" }, optionText: { color: "#fff", fontSize: 16, fontWeight: "700" }, optionHint: { marginTop: 4, color: "#8eb7ce", fontSize: 12 },
   input: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, color: "#fff", backgroundColor: "#12283a", borderWidth: 1, borderColor: "rgba(126,205,255,0.28)" },
   wifi: { marginTop: 8, borderRadius: 12, padding: 14, backgroundColor: "#155f9f" }, wifiText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  storageRefresh: { marginTop: 8, borderRadius: 12, padding: 14, backgroundColor: "#126b87", borderWidth: 1, borderColor: "#4de0d0" },
   layoutGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 }, layoutChoice: { flexGrow: 1, flexBasis: "42%", borderRadius: 12, padding: 13, backgroundColor: "#12283a", borderWidth: 2, borderColor: "rgba(126,205,255,0.28)" }, layoutSelected: { borderColor: "#1689e8", backgroundColor: "#123c59" },
   ratioChoice: { flexGrow: 1, flexBasis: "27%", borderRadius: 12, padding: 12, backgroundColor: "#12283a", borderWidth: 2, borderColor: "rgba(126,205,255,0.28)", alignItems: "center" },
   tickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 }, field: { flexGrow: 1, flexBasis: "44%" }, fieldLabel: { color: "#b9d7e8", marginBottom: 5, fontSize: 12, fontWeight: "700" },
   footer: { padding: 16, borderTopWidth: 1, borderTopColor: "rgba(150,220,255,0.14)" }, save: { borderRadius: 12, paddingVertical: 14, alignItems: "center", backgroundColor: "#1689e8", borderWidth: 2, borderColor: "transparent" }, saveText: { color: "#fff", fontWeight: "800", fontSize: 16 },
   focused: { borderColor: "#58e68b", shadowColor: "#58e68b", shadowOpacity: 0.7, shadowRadius: 10, elevation: 7, transform: [{ scale: 1.02 }] },
+  disabled: { opacity: 0.65 },
 });

@@ -95,6 +95,7 @@ let selectedGridRatio = "1:1:1";
 let latestDeviceStatusList = [];
 let isDeviceDashboardOpen = false;
 let pendingUploadSelections = { 1: [], 2: [], 3: [] };
+let restartAfterUploadedMediaSave = false;
 const SELECTED_ORIGINS_STORAGE_KEY = "tvCmsSelectedOrigins";
 const CMS_FORM_DRAFT_STORAGE_KEY = "tvCmsFormDraftV2";
 const seenApkUpdateSuccessNotices = new Set();
@@ -914,6 +915,7 @@ function createMessageDialog({
 
   const overlay = document.createElement("div");
   overlay.className = "message-overlay";
+  overlay.style.zIndex = "40000";
 
   const panel = document.createElement("div");
   panel.className = `message-panel message-${safeType}`;
@@ -3157,8 +3159,6 @@ function buildConfigFromForm() {
         slideDuration: Number(document.getElementById("duration1").value || 5),
         sourceType: normalizeSectionSourceType(document.getElementById("sourceType1")?.value),
         sourceUrl: document.getElementById("sourceUrl1")?.value || "",
-        volume: Math.max(0, Math.min(1, Number(document.getElementById("sectionVolume1")?.value || 100) / 100)),
-        muted: document.getElementById("sectionMuted1")?.checked === true,
         sourceTemplates: getTemplatesFromSectionConfig(currentConfig?.sections?.[0] || {}),
       },
       {
@@ -3166,8 +3166,6 @@ function buildConfigFromForm() {
         slideDuration: Number(document.getElementById("duration2").value || 5),
         sourceType: normalizeSectionSourceType(document.getElementById("sourceType2")?.value),
         sourceUrl: document.getElementById("sourceUrl2")?.value || "",
-        volume: Math.max(0, Math.min(1, Number(document.getElementById("sectionVolume2")?.value || 100) / 100)),
-        muted: document.getElementById("sectionMuted2")?.checked === true,
         sourceTemplates: getTemplatesFromSectionConfig(currentConfig?.sections?.[1] || {}),
       },
       {
@@ -3175,8 +3173,6 @@ function buildConfigFromForm() {
         slideDuration: Number(document.getElementById("duration3").value || 5),
         sourceType: normalizeSectionSourceType(document.getElementById("sourceType3")?.value),
         sourceUrl: document.getElementById("sourceUrl3")?.value || "",
-        volume: Math.max(0, Math.min(1, Number(document.getElementById("sectionVolume3")?.value || 100) / 100)),
-        muted: document.getElementById("sectionMuted3")?.checked === true,
         sourceTemplates: getTemplatesFromSectionConfig(currentConfig?.sections?.[2] || {}),
       },
     ],
@@ -3311,12 +3307,6 @@ function applyConfigToForm(config = {}) {
       const urlEl = document.getElementById(`sourceUrl${i}`);
       if (typeEl) typeEl.value = normalizeSectionSourceType(sectionConfig.sourceType);
       if (urlEl) urlEl.value = sectionConfig.sourceUrl || "";
-      const volumeEl = document.getElementById(`sectionVolume${i}`);
-      const mutedEl = document.getElementById(`sectionMuted${i}`);
-      if (volumeEl) volumeEl.value = String(Math.round(Math.max(0, Math.min(1, Number(sectionConfig.volume ?? 1))) * 100));
-      const volumeLabelEl = document.getElementById(`sectionVolumeLabel${i}`);
-      if (volumeLabelEl && volumeEl) volumeLabelEl.textContent = `${volumeEl.value}%`;
-      if (mutedEl) mutedEl.checked = sectionConfig.muted === true;
       updateSectionUploadMode(i);
     }
     updateSectionVisibility();
@@ -4559,11 +4549,9 @@ function renderUploadSections() {
 
   const markup = [];
   for (let i = 1; i <= count; i++) {
-    const savedVolume = Math.round(Math.max(0, Math.min(1, Number(currentConfig?.sections?.[i - 1]?.volume ?? 1))) * 100);
-    const savedMuted = currentConfig?.sections?.[i - 1]?.muted === true;
     markup.push(`
         <div class="section-panel upload-section-card">
-            <div class="section-heading-row" style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;margin-bottom:10px"><h3 style="margin:0;flex:0 0 auto">Section ${i}</h3><div class="section-heading-actions" style="display:flex;align-items:center;gap:5px;flex-wrap:nowrap"><button class="btn files-btn" style="background:#1689e8;color:#fff;border:1px solid #8de1ff;flex:0 0 auto" type="button" onclick="window.openSectionFiles(${i})">Files</button><div class="section-audio-controls" style="display:flex;align-items:center;gap:4px;flex:0 0 auto;padding:4px 6px;border:1px solid #579ac0;border-radius:8px;background:#102c3d" aria-label="Section ${i} audio controls"><span class="audio-label">Volume</span><button class="audio-step-btn" style="width:25px;height:25px;padding:0;border:1px solid #79c9ef;border-radius:5px;background:#1c506b;color:#fff;font-size:17px;line-height:1" type="button" aria-label="Decrease Section ${i} volume" onclick="changeSectionVolume(${i}, -10)">−</button><output id="sectionVolumeLabel${i}" for="sectionVolume${i}" style="min-width:36px;text-align:center;color:#fff;font-weight:700">${savedVolume}%</output><button class="audio-step-btn" style="width:25px;height:25px;padding:0;border:1px solid #79c9ef;border-radius:5px;background:#1c506b;color:#fff;font-size:17px;line-height:1" type="button" aria-label="Increase Section ${i} volume" onclick="changeSectionVolume(${i}, 10)">+</button><input id="sectionVolume${i}" type="hidden" value="${savedVolume}" /><label class="mute-control" style="display:flex;align-items:center;gap:4px;margin:0;color:#fff"><input id="sectionMuted${i}" style="width:13px;height:13px;margin:0;accent-color:#1689e8" type="checkbox" ${savedMuted ? "checked" : ""} onchange="markCmsFormDirty()" />Mute</label></div></div></div>
+            <div class="section-heading-row" style="display:flex;align-items:center;gap:6px;margin-bottom:10px"><h3 style="margin:0">Section ${i}</h3><button class="btn files-btn" style="background:#1689e8;color:#fff;border:1px solid #8de1ff" type="button" onclick="window.openSectionFiles(${i})">Files</button></div>
             <div class="source-controls source-controls-stacked">
               <select id="sourceType${i}" onchange="onSectionSourceChange(${i})">
                 <option value="multimedia" selected>Multimedia (Image/Video)</option>
@@ -4634,16 +4622,6 @@ function renderUploadSections() {
   }
 }
 
-function changeSectionVolume(section, change) {
-  const volumeEl = document.getElementById(`sectionVolume${section}`);
-  const labelEl = document.getElementById(`sectionVolumeLabel${section}`);
-  if (!volumeEl) return;
-  const next = Math.max(0, Math.min(100, Number(volumeEl.value || 100) + Number(change || 0)));
-  volumeEl.value = String(next);
-  if (labelEl) labelEl.textContent = `${next}%`;
-  markCmsFormDirty();
-}
-
 let sectionFilesModalToken = 0;
 
 async function openSectionFiles(section) {
@@ -4653,7 +4631,7 @@ async function openSectionFiles(section) {
   const overlay = document.createElement("div");
   overlay.className = "section-files-overlay";
   overlay.style.cssText = "position:fixed;inset:0;z-index:30000;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(3,8,13,.78);backdrop-filter:blur(5px)";
-  overlay.innerHTML = `<div class="section-files-panel" role="dialog" aria-modal="true" aria-label="All section files"><div class="template-gallery-head"><div><h3>All Section Files</h3><p>Files from Sections 1, 2 and 3.</p></div><button class="btn danger" type="button" data-close>Close</button></div><div data-file-list class="section-files-list"><div class="section-help">Loading files…</div></div><div class="template-actions"><button class="btn danger" type="button" data-delete disabled>Delete Selected</button></div></div>`;
+  overlay.innerHTML = `<div class="section-files-panel" role="dialog" aria-modal="true" aria-label="All section files"><div class="template-gallery-head"><div><h3>All Section Files</h3><p>Files from Sections 1, 2 and 3.</p></div><button class="btn danger" type="button" data-close>Close</button></div><div data-file-list class="section-files-list"><div class="section-help">Loading files…</div></div><div class="template-actions" style="display:none"><button class="btn danger" type="button" data-delete disabled>Delete Selected</button></div></div>`;
   const list = overlay.querySelector("[data-file-list]");
   overlay.querySelector(".section-files-panel").style.cssText = "box-sizing:border-box;width:min(760px,100%);max-height:calc(100vh - 20px);overflow:auto;border-radius:18px;border:1px solid rgba(122,194,242,.26);background:linear-gradient(145deg,rgba(9,20,31,.98),rgba(7,15,23,.96));padding:16px;box-shadow:0 26px 70px rgba(0,0,0,.48)";
   const deleteButton = overlay.querySelector("[data-delete]");
@@ -4780,6 +4758,7 @@ function handleTvNativeEvent(payload) {
         .catch(() => {});
     }
     showNotice("success", "Upload Complete", `${Number(payload?.count || 0)} file(s) uploaded to Section ${section}.`, 4000);
+    restartAfterUploadedMediaSave = true;
     return;
   }
   if (payload?.type === "TV_UPLOAD_FAILED") {
@@ -5102,6 +5081,7 @@ async function uploadMedia(section) {
     const hasMeaningfulSkip = skippedOfflineTargets.length || skippedDuplicateTargets.length;
     if (successfulTargets.length && !failedTargets.length) {
       showNotice("success", "Upload Complete", summaryParts.join(" "));
+      restartAfterUploadedMediaSave = true;
       clearUploadSelection(section);
     } else if (successfulTargets.length) {
       showNotice("warning", "Upload Partially Complete", summaryParts.join(" "), 8500);
@@ -5169,7 +5149,7 @@ async function saveConfig() {
       const res = await fetch(`${targetDevice}/config`, {
         method: "POST",
         headers: buildCmsAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ config }),
+        body: JSON.stringify({ config, restartAfterUpload: restartAfterUploadedMediaSave }),
       });
 
       if (!res.ok) {
@@ -5200,6 +5180,7 @@ async function saveConfig() {
     updateUploadProgress(92, "Applying settings instantly on selected TVs...");
     clearUnusedSectionsForLayout(targetDevices, config.layout || "fullscreen").catch(() => {});
     cmsFormDirty = false;
+    restartAfterUploadedMediaSave = false;
     clearCmsFormDraft();
     updateUploadProgress(100, "Configuration applied successfully.");
     showNotice("success", "Settings Saved", "Configuration has been applied successfully.", 2200);

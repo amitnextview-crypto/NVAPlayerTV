@@ -295,11 +295,11 @@ export default function SlideRenderer({
     : [];
   const sourceTemplate = sourceTemplates[templateIndex % Math.max(1, sourceTemplates.length)] || null;
   const sectionResizeMode = sectionConfig?.usbFitMode || "stretch";
-  const configuredVolume = Number(sectionConfig?.volume);
-  const sectionVideoVolume = Number.isFinite(configuredVolume)
-    ? Math.max(0, Math.min(1, configuredVolume))
-    : 1;
-  const sectionVideoMuted = sectionConfig?.muted === true;
+  // Per-section audio controls were removed from CMS because some TV builds
+  // restart their player after an audio-only config save. Old saved values are
+  // deliberately ignored so previously-muted sections recover normal audio.
+  const sectionVideoVolume = 1;
+  const sectionVideoMuted = false;
   const isMultiPaneLayout = config?.layout === "grid2" || config?.layout === "grid3";
   const mediaRotateLayerStyle = styles.fillLayer;
 
