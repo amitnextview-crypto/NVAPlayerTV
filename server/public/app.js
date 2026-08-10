@@ -2718,24 +2718,24 @@ function renderUploadSections() {
 let sectionFilesModalToken = 0;
 
 async function openSectionFiles(section) {
+  return openDeviceFileManager();
+
   const modalToken = ++sectionFilesModalToken;
   document.querySelectorAll(".section-files-overlay").forEach((element) => element.remove());
-  const deviceId = String(document.getElementById("deviceSelect")?.value || "").trim();
-  if (!deviceId) return showNotice("warning", "Select Device", "Select a device before managing section files.");
-
   // Show the dialog immediately. This keeps the Files button responsive even
-  // when a TV takes a moment to return its media catalogue.
+  // when TVs take a moment to return their media catalogues.
   const overlay = document.createElement("div");
   overlay.className = "section-files-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:30000;display:flex;align-items:center;justify-content:center;padding:clamp(10px,3vw,24px);background:rgba(3,8,13,.78);backdrop-filter:blur(5px)";
   overlay.style.cssText = "position:fixed;inset:0;z-index:30000;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(3,8,13,.78);backdrop-filter:blur(5px)";
   overlay.innerHTML = `
-    <div class="section-files-panel" role="dialog" aria-modal="true" aria-label="All section files">
-      <div class="template-gallery-head"><div><h3>All Section Files</h3><p>Files from Sections 1, 2 and 3.</p></div><button class="btn danger" type="button" data-close>Close</button></div>
+    <div class="section-files-panel section-files-all-devices" role="dialog" aria-modal="true" aria-label="Connected device files">
+      <div class="template-gallery-head"><div><h3>Connected Device Files</h3><p>Files in Sections 1, 2 and 3 for every connected device.</p></div><button class="btn danger" type="button" data-close>Close</button></div>
       <div data-file-list class="section-files-list"><div class="section-help">Loading files…</div></div>
-      <div class="template-actions" style="display:none"><button class="btn danger" type="button" data-delete disabled>Delete Selected</button></div>
+      <div class="template-actions" style="display:flex"><button class="btn danger" type="button" data-delete disabled>Delete Selected</button></div>
     </div>`;
   const list = overlay.querySelector("[data-file-list]");
-  overlay.querySelector(".section-files-panel").style.cssText = "box-sizing:border-box;width:min(760px,100%);max-height:calc(100vh - 20px);overflow:auto;border-radius:18px;border:1px solid rgba(122,194,242,.26);background:linear-gradient(145deg,rgba(9,20,31,.98),rgba(7,15,23,.96));padding:16px;box-shadow:0 26px 70px rgba(0,0,0,.48)";
+  overlay.querySelector(".section-files-panel").style.cssText = "box-sizing:border-box;width:min(1180px,100%);max-height:calc(100vh - 20px);overflow:auto;border-radius:18px;border:1px solid rgba(122,194,242,.26);background:linear-gradient(145deg,rgba(9,20,31,.98),rgba(7,15,23,.96));padding:16px;box-shadow:0 26px 70px rgba(0,0,0,.48)";
   const deleteButton = overlay.querySelector("[data-delete]");
   const close = () => {
     if (modalToken === sectionFilesModalToken) sectionFilesModalToken += 1;
@@ -2745,17 +2745,21 @@ async function openSectionFiles(section) {
   overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
   document.body.appendChild(overlay);
 
-  let files = [];
+  let deviceFiles = [];
   try {
-    const res = await fetch(`/media-list?deviceId=${encodeURIComponent(deviceId)}&ts=${Date.now()}`);
-    if (!res.ok) throw new Error("media-list-failed");
-    const allFiles = await res.json();
-    const unique = new Map();
-    (Array.isArray(allFiles) ? allFiles : []).forEach((file) => {
-      const name = String(file?.originalName || file?.name || "").trim();
-      if (name) unique.set(name, file);
-    });
-    files = Array.from(unique.values());
+    const statusRes = await fetch(`/device-status?ts=${Date.now()}`);
+    if (!statusRes.ok) throw new Error("device-status-failed");
+    const devices = (await statusRes.json()).filter((device) => device?.online && device?.deviceId);
+    deviceFiles = await Promise.all(devices.map(async (device) => {
+      const res = await fetch(`/media-list?deviceId=${encodeURIComponent(device.deviceId)}&ts=${Date.now()}`);
+      if (!res.ok) throw new Error("media-list-failed");
+      const unique = new Map();
+      (await res.json()).forEach((file) => {
+        const name = String(file?.originalName || file?.name || "").trim();
+        if (name) unique.set(`${Number(file?.section || 1)}:${name}`, file);
+      });
+      return { device, files: Array.from(unique.values()) };
+    }));
   } catch (_e) {
     if (modalToken !== sectionFilesModalToken) return;
     list.innerHTML = '<div class="section-help">Files could not be loaded. Please try again.</div>';
@@ -2765,40 +2769,50 @@ async function openSectionFiles(section) {
   // Ignore a slower response when the user has opened another section in the meantime.
   if (modalToken !== sectionFilesModalToken) return;
 
-  const bySection = [1, 2, 3].map((sectionNo) => ({
-    sectionNo,
-    files: files.filter((file) => Number(file?.section || 1) === sectionNo),
-  }));
-  list.innerHTML = files.length
-    ? bySection.map(({ sectionNo, files: sectionFiles }) => `
+  const allFileCount = deviceFiles.reduce((total, entry) => total + entry.files.length, 0);
+  list.innerHTML = deviceFiles.length
+    ? deviceFiles.map(({ device, files }) => {
+      const deviceId = String(device.deviceId);
+      const name = String(device?.meta?.deviceName || device?.meta?.name || deviceId);
+      const ip = String(device?.meta?.ip || device?.meta?.ipAddress || device?.ip || "").trim();
+      const bySection = [1, 2, 3].map((sectionNo) => ({ sectionNo, files: files.filter((file) => Number(file?.section || 1) === sectionNo) }));
+      return `<section class="device-files-card">
+        <div class="device-files-heading"><div><h4>${escapeHtml(name)}</h4><p>Device ID: ${escapeHtml(deviceId)}${ip ? ` &nbsp;|&nbsp; IP: ${escapeHtml(ip)}` : ""}</p></div><span class="section-files-count">${files.length} file${files.length === 1 ? "" : "s"}</span></div>
+        <div class="device-files-sections">${bySection.map(({ sectionNo, files: sectionFiles }) => `
         <section class="section-files-group" style="display:grid;gap:9px;padding:12px;border:1px solid rgba(111,197,239,.35);border-radius:12px;background:#0c2434">
           <h4 style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0"><span class="section-files-title" style="display:inline-flex;align-items:center;min-height:31px;padding:0 10px;border:1px solid #6bcaf5;border-radius:8px;background:#17465f;color:#fff;font-size:15px">Section ${sectionNo}</span><span class="section-files-count" style="display:inline-flex;align-items:center;min-height:31px;padding:0 10px;border:1px solid #72d3ff;border-radius:8px;background:#1689e8;color:#fff;font-size:13px">${sectionFiles.length} file${sectionFiles.length === 1 ? "" : "s"}</span></h4>
           <div class="section-file-cards" style="display:grid;gap:7px">${sectionFiles.length ? sectionFiles.map((file) => {
         const name = String(file?.originalName || file?.name || "");
         const size = Number(file?.size || 0);
         const extension = name.includes(".") ? name.split(".").pop().toUpperCase() : "FILE";
-        return `<label class="section-files-row" style="display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border:1px solid rgba(255,255,255,.18);border-radius:9px;background:#102c3d;cursor:pointer"><input class="section-file-checkbox" style="grid-column:1;grid-row:1 / span 2;width:17px;height:17px;margin:0;justify-self:center;accent-color:#1689e8" type="checkbox" data-section="${sectionNo}" value="${escapeHtml(name)}"><span class="section-file-name" style="display:grid;gap:3px;min-width:0"><strong title="${escapeHtml(name)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;font-size:14px">${escapeHtml(name)}</strong><em style="font-style:normal;width:max-content;padding:2px 6px;border-radius:9px;background:#17465f;color:#bcecff;font-size:10px">${escapeHtml(extension)}</em></span><small style="grid-column:3;grid-row:1;color:#c5deec;white-space:nowrap">${formatBytes(size)}</small></label>`;
+        const storageDevice = String(file?.storageDevice || deviceId);
+        const shared = storageDevice === "all";
+        return `<label class="section-files-row" style="display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border:1px solid rgba(255,255,255,.18);border-radius:9px;background:#102c3d;cursor:pointer"><input class="section-file-checkbox" style="grid-column:1;grid-row:1 / span 2;width:17px;height:17px;margin:0;justify-self:center;accent-color:#1689e8" type="checkbox" data-section="${sectionNo}" data-device="${escapeHtml(storageDevice)}" value="${escapeHtml(name)}"><span class="section-file-name" style="display:grid;gap:3px;min-width:0"><strong title="${escapeHtml(name)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;font-size:14px">${escapeHtml(name)}</strong><em style="font-style:normal;width:max-content;padding:2px 6px;border-radius:9px;background:#17465f;color:#bcecff;font-size:10px">${escapeHtml(extension)}${shared ? " (SHARED)" : ""}</em></span><small style="grid-column:3;grid-row:1;color:#c5deec;white-space:nowrap">${formatBytes(size)}</small></label>`;
       }).join("") : '<div class="section-help">No files in this section.</div>'}</div>
-        </section>`).join("")
-    : '<div class="section-help">No uploaded files were found.</div>';
-  deleteButton.disabled = !files.length;
+        </section>`).join("")}</div>
+      </section>`;
+    }).join("")
+    : '<div class="section-help">No connected devices found.</div>';
+  deleteButton.disabled = !allFileCount;
   deleteButton?.addEventListener("click", async () => {
     const selected = Array.from(overlay.querySelectorAll("input[type=checkbox]:checked")).map((input) => ({
       section: Number(input.dataset.section || 1),
+      deviceId: String(input.dataset.device || ""),
       name: input.value,
     }));
     if (!selected.length) return showNotice("warning", "No Files Selected", "Select at least one file to delete.");
     if (!(await showConfirmDialog("Delete Section Files", `Delete ${selected.length} selected file(s)?`, "Delete", "Cancel"))) return;
     try {
       const selectedBySection = selected.reduce((groups, item) => {
-        (groups[item.section] ||= []).push(item.name);
+        const key = `${item.deviceId}:${item.section}`;
+        (groups[key] ||= { deviceId: item.deviceId, section: item.section, names: [] }).names.push(item.name);
         return groups;
       }, {});
-      const results = await Promise.all(Object.entries(selectedBySection).map(async ([sectionNo, names]) => {
+      const results = await Promise.all(Object.values(selectedBySection).map(async ({ deviceId, section: sectionNo, names }) => {
         const res = await fetch("/config/delete-section-media", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ targetDevice: deviceId, section: Number(sectionNo), files: names }),
+          body: JSON.stringify({ targetDevice: deviceId, section: Number(sectionNo), files: names, storageOnly: deviceId === "all" }),
         });
         const result = await res.json();
         if (!res.ok || !result?.success) throw new Error("delete-failed");
@@ -2809,6 +2823,94 @@ async function openSectionFiles(section) {
     } catch (_e) {
       showNotice("error", "Delete Failed", "Selected files could not be deleted.");
     }
+  });
+}
+
+async function openDeviceFileManager() {
+  const token = ++sectionFilesModalToken;
+  document.querySelectorAll(".section-files-overlay").forEach((element) => element.remove());
+  const overlay = document.createElement("div");
+  overlay.className = "section-files-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:30000;display:flex;align-items:center;justify-content:center;padding:clamp(10px,3vw,24px);background:rgba(3,8,13,.78);backdrop-filter:blur(5px)";
+  overlay.innerHTML = `<div class="section-files-panel device-file-manager" role="dialog" aria-modal="true">
+    <div class="template-gallery-head device-file-manager-head"><div><h3>Media File Manager</h3><p>Select All Devices or one device to manage uploaded files.</p></div><div class="device-file-header-actions"><button class="btn danger" type="button" data-delete disabled>Delete Selected</button><button class="btn danger" type="button" data-close>Close</button></div></div>
+    <div class="device-file-manager-body"><aside class="device-file-nav" data-nav>Loading devices...</aside><main class="device-file-content"><div class="device-file-content-head" data-heading></div><div class="section-files-list" data-list>Select a device.</div></main></div>
+    <div class="device-file-actions"><span data-status>Select files to delete.</span></div>
+  </div>`;
+  const nav = overlay.querySelector("[data-nav]");
+  overlay.querySelector(".device-file-manager").style.cssText = "box-sizing:border-box;width:min(1080px,100%);max-height:calc(100dvh - 20px);overflow:auto;border-radius:18px;border:1px solid rgba(122,194,242,.26);background:linear-gradient(145deg,rgba(9,20,31,.98),rgba(7,15,23,.96));padding:16px;box-shadow:0 26px 70px rgba(0,0,0,.48);margin:auto";
+  const heading = overlay.querySelector("[data-heading]");
+  const list = overlay.querySelector("[data-list]");
+  const deleteButton = overlay.querySelector("[data-delete]");
+  const status = overlay.querySelector("[data-status]");
+  const close = () => { if (token === sectionFilesModalToken) sectionFilesModalToken += 1; overlay.remove(); };
+  overlay.querySelector("[data-close]").addEventListener("click", close);
+  overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
+  document.body.appendChild(overlay);
+
+  let targets = [];
+  let activeTarget = "all";
+  const updateDeleteState = () => {
+    const count = overlay.querySelectorAll("input[type=checkbox]:checked").length;
+    deleteButton.disabled = !count;
+    status.textContent = count ? `${count} file${count === 1 ? "" : "s"} selected` : "Select files to delete.";
+  };
+  const renderFiles = (files) => {
+    const target = targets.find((item) => item.id === activeTarget) || { name: activeTarget, ip: "" };
+    heading.innerHTML = `<h4>${escapeHtml(target.name)}</h4><p>${activeTarget === "all" ? "Shared media for all connected TVs" : `Device ID: ${escapeHtml(activeTarget)}${target.ip ? ` | IP: ${escapeHtml(target.ip)}` : ""}`}</p>`;
+    list.innerHTML = [1, 2, 3].map((sectionNo) => {
+      const sectionFiles = files.filter((file) => Number(file?.section || 1) === sectionNo);
+      return `<section class="section-files-group"><h4><span class="section-files-title">Section ${sectionNo}</span><span class="section-files-count">${sectionFiles.length} file${sectionFiles.length === 1 ? "" : "s"}</span></h4><div class="section-file-cards">${sectionFiles.length ? sectionFiles.map((file) => {
+        const name = String(file?.originalName || file?.name || "");
+        const extension = name.includes(".") ? name.split(".").pop().toUpperCase() : "FILE";
+        return `<label class="section-files-row"><input class="section-file-checkbox" type="checkbox" data-section="${sectionNo}" value="${escapeHtml(name)}"><span class="section-file-name"><strong title="${escapeHtml(name)}">${escapeHtml(name)}</strong><em>${escapeHtml(extension)}</em></span><small>${formatBytes(Number(file?.size || 0))}</small></label>`;
+      }).join("") : '<div class="section-help">This section is empty.</div>'}</div></section>`;
+    }).join("");
+    overlay.querySelectorAll("input[type=checkbox]").forEach((input) => input.addEventListener("change", updateDeleteState));
+    updateDeleteState();
+  };
+  const selectTarget = async (targetId) => {
+    activeTarget = targetId;
+    nav.querySelectorAll("[data-target]").forEach((button) => button.classList.toggle("is-active", button.dataset.target === targetId));
+    list.innerHTML = '<div class="section-help">Loading files...</div>';
+    try {
+      const res = await fetch(`/media-list?deviceId=${encodeURIComponent(targetId)}&ownOnly=1&ts=${Date.now()}`);
+      if (!res.ok) throw new Error("media-list-failed");
+      const unique = new Map();
+      (await res.json()).forEach((file) => {
+        const name = String(file?.originalName || file?.name || "").trim();
+        if (name) unique.set(`${Number(file?.section || 1)}:${name}`, file);
+      });
+      if (token === sectionFilesModalToken && activeTarget === targetId) renderFiles(Array.from(unique.values()));
+    } catch (_e) {
+      if (token === sectionFilesModalToken) list.innerHTML = '<div class="section-help">Files could not be loaded. Please try again.</div>';
+    }
+  };
+  try {
+    const response = await fetch(`/device-status?ts=${Date.now()}`);
+    if (!response.ok) throw new Error("device-status-failed");
+    targets = [{ id: "all", name: "All Devices", ip: "" }, ...(await response.json()).filter((item) => item?.online && item?.deviceId).map((item) => ({ id: String(item.deviceId), name: String(item?.meta?.deviceName || item?.meta?.name || item.deviceId), ip: String(item?.meta?.ip || item?.meta?.ipAddress || item?.ip || "").trim() }))];
+    nav.innerHTML = targets.map((target) => `<button type="button" class="device-file-nav-item" data-target="${escapeHtml(target.id)}"><strong>${escapeHtml(target.name)}</strong><small>${target.id === "all" ? "Shared media" : `IP: ${escapeHtml(target.ip || "Not available")}`}</small></button>`).join("");
+    nav.querySelectorAll("[data-target]").forEach((button) => button.addEventListener("click", () => selectTarget(button.dataset.target)));
+    await selectTarget("all");
+  } catch (_e) {
+    nav.innerHTML = '<div class="section-help">Connected devices could not be loaded.</div>';
+  }
+  deleteButton.addEventListener("click", async () => {
+    const selected = Array.from(overlay.querySelectorAll("input[type=checkbox]:checked")).map((input) => ({ section: Number(input.dataset.section || 1), name: input.value }));
+    if (!selected.length) return;
+    if (!(await showConfirmDialog("Delete Files", `Delete ${selected.length} selected file(s) from ${activeTarget === "all" ? "All Devices" : "this device"}?`, "Delete", "Cancel"))) return;
+    try {
+      const bySection = selected.reduce((groups, item) => { (groups[item.section] ||= []).push(item.name); return groups; }, {});
+      const results = await Promise.all(Object.entries(bySection).map(async ([section, files]) => {
+        const response = await fetch("/config/delete-section-media", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ targetDevice: activeTarget, section: Number(section), files, storageOnly: activeTarget === "all" }) });
+        const result = await response.json();
+        if (!response.ok || !result?.success) throw new Error("delete-failed");
+        return Number(result.deleted || 0);
+      }));
+      showNotice("success", "Files Deleted", `${results.reduce((total, value) => total + value, 0)} file(s) deleted.`);
+      await selectTarget(activeTarget);
+    } catch (_e) { showNotice("error", "Delete Failed", "Selected files could not be deleted."); }
   });
 }
 

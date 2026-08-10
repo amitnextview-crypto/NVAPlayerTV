@@ -4625,11 +4625,14 @@ function renderUploadSections() {
 let sectionFilesModalToken = 0;
 
 async function openSectionFiles(section) {
+  return openConnectedDeviceFileManager();
+
   const modalToken = ++sectionFilesModalToken;
   document.querySelectorAll(".section-files-overlay").forEach((element) => element.remove());
   const origin = getCurrentOrigin();
   const overlay = document.createElement("div");
   overlay.className = "section-files-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:30000;display:flex;align-items:center;justify-content:center;padding:clamp(10px,3vw,24px);background:rgba(3,8,13,.78);backdrop-filter:blur(5px)";
   overlay.style.cssText = "position:fixed;inset:0;z-index:30000;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(3,8,13,.78);backdrop-filter:blur(5px)";
   overlay.innerHTML = `<div class="section-files-panel" role="dialog" aria-modal="true" aria-label="All section files"><div class="template-gallery-head"><div><h3>All Section Files</h3><p>Files from Sections 1, 2 and 3.</p></div><button class="btn danger" type="button" data-close>Close</button></div><div data-file-list class="section-files-list"><div class="section-help">Loading files…</div></div><div class="template-actions" style="display:none"><button class="btn danger" type="button" data-delete disabled>Delete Selected</button></div></div>`;
   const list = overlay.querySelector("[data-file-list]");
@@ -4682,6 +4685,109 @@ async function openSectionFiles(section) {
     } catch (_e) {
       showNotice("error", "Delete Failed", "Selected files could not be deleted.");
     }
+  });
+}
+
+async function openConnectedDeviceFileManager() {
+  const token = ++sectionFilesModalToken;
+  document.querySelectorAll(".section-files-overlay").forEach((element) => element.remove());
+  const overlay = document.createElement("div");
+  overlay.className = "section-files-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:30000;display:flex;align-items:center;justify-content:center;padding:clamp(10px,3vw,24px);background:rgba(3,8,13,.78);backdrop-filter:blur(5px)";
+  overlay.innerHTML = `<div class="section-files-panel device-file-manager" role="dialog" aria-modal="true" aria-label="Device file manager">
+    <div class="template-gallery-head device-file-manager-head"><div><h3>Media File Manager</h3><p>Select All Devices or one device to manage uploaded files.</p></div><div class="device-file-header-actions"><button class="btn danger" type="button" data-delete disabled>Delete Selected</button><button class="btn danger" type="button" data-close>Close</button></div></div>
+    <div class="device-file-manager-body"><aside class="device-file-nav" data-nav>Loading devices...</aside><main class="device-file-content"><div class="device-file-content-head" data-heading></div><div class="section-files-list" data-list>Select a device.</div></main></div>
+    <div class="device-file-actions"><span data-status>Select files to delete.</span></div>
+  </div>`;
+  const nav = overlay.querySelector("[data-nav]");
+  overlay.querySelector(".device-file-manager").style.cssText = "box-sizing:border-box;width:min(1120px,100%);max-height:calc(100dvh - 20px);overflow:auto;border-radius:18px;border:1px solid rgba(122,194,242,.26);background:linear-gradient(145deg,rgba(9,20,31,.98),rgba(7,15,23,.96));padding:16px;box-shadow:0 26px 70px rgba(0,0,0,.48);margin:auto";
+  const heading = overlay.querySelector("[data-heading]");
+  const list = overlay.querySelector("[data-list]");
+  const deleteButton = overlay.querySelector("[data-delete]");
+  const status = overlay.querySelector("[data-status]");
+  const close = () => { if (token === sectionFilesModalToken) sectionFilesModalToken += 1; overlay.remove(); };
+  overlay.querySelector("[data-close]").addEventListener("click", close);
+  overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
+  document.body.appendChild(overlay);
+
+  let targets = [];
+  let activeTarget = "all";
+  const updateDeleteState = () => {
+    const count = overlay.querySelectorAll("input[type=checkbox]:checked").length;
+    deleteButton.disabled = !count;
+    status.textContent = count ? `${count} file${count === 1 ? "" : "s"} selected` : "Select files to delete.";
+  };
+  const renderSections = (entries, title, details) => {
+    heading.innerHTML = `<h4>${escapeHtml(title)}</h4><p>${escapeHtml(details)}</p>`;
+    list.innerHTML = entries.map(({ target, files }) => `<section class="device-files-card"><div class="device-files-heading"><div><h4>${escapeHtml(target.name)}</h4><p>${escapeHtml(target.ip ? `IP: ${target.ip}` : target.origin)}</p></div><span class="section-files-count">${files.length} file${files.length === 1 ? "" : "s"}</span></div><div class="device-files-sections">${[1, 2, 3].map((sectionNo) => {
+      const sectionFiles = files.filter((file) => Number(file?.section || 1) === sectionNo);
+      return `<section class="section-files-group"><h4><span class="section-files-title">Section ${sectionNo}</span><span class="section-files-count">${sectionFiles.length}</span></h4><div class="section-file-cards">${sectionFiles.length ? sectionFiles.map((file) => {
+        const name = String(file?.originalName || file?.name || "");
+        const ext = name.includes(".") ? name.split(".").pop().toUpperCase() : "FILE";
+        return `<label class="section-files-row"><input class="section-file-checkbox" type="checkbox" data-origin="${escapeHtml(target.origin)}" data-section="${sectionNo}" value="${escapeHtml(name)}"><span class="section-file-name"><strong title="${escapeHtml(name)}">${escapeHtml(name)}</strong><em>${escapeHtml(ext)}</em></span><small>${formatBytes(Number(file?.size || 0))}</small></label>`;
+      }).join("") : '<div class="section-help">This section is empty.</div>'}</div></section>`;
+    }).join("")}</div></section>`).join("");
+    overlay.querySelectorAll("input[type=checkbox]").forEach((input) => input.addEventListener("change", updateDeleteState));
+    updateDeleteState();
+  };
+  const loadFiles = async (target) => {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timeout = controller ? setTimeout(() => controller.abort(), 3500) : null;
+    try {
+      const response = await fetch(`${target.origin}/media-list?ts=${Date.now()}`, { cache: "no-store", signal: controller?.signal });
+      if (!response.ok) throw new Error("media-list-failed");
+      const unique = new Map();
+      (await response.json()).forEach((file) => {
+        const name = String(file?.originalName || file?.name || "").trim();
+        if (name) unique.set(`${Number(file?.section || 1)}:${name}`, file);
+      });
+      return { target, files: Array.from(unique.values()) };
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  };
+  const selectTarget = async (targetId) => {
+    activeTarget = targetId;
+    nav.querySelectorAll("[data-target]").forEach((button) => button.classList.toggle("is-active", button.dataset.target === targetId));
+    list.innerHTML = '<div class="section-help">Loading files...</div>';
+    try {
+      const visibleTargets = targetId === "all" ? targets.filter((target) => target.id !== "all") : targets.filter((target) => target.id === targetId);
+      const settled = await Promise.allSettled(visibleTargets.map(loadFiles));
+      const results = settled.filter((item) => item.status === "fulfilled").map((item) => item.value);
+      if (token !== sectionFilesModalToken || activeTarget !== targetId) return;
+      const current = targets.find((target) => target.id === targetId);
+      renderSections(results, current?.name || "All Devices", targetId === "all" ? "All connected device uploads. Select files to delete from their respective TV." : `Device ID: ${current?.deviceId || ""}${current?.ip ? ` | IP: ${current.ip}` : ""}`);
+    } catch (_e) {
+      if (token === sectionFilesModalToken) list.innerHTML = '<div class="section-help">Files could not be loaded. Please try again.</div>';
+    }
+  };
+  try {
+    // Do not block the popup on the background network/subnet scan. The CMS
+    // already keeps a discovered-device cache while the page is open.
+    await loadDevices();
+    const devices = Array.from(currentDeviceMap.values());
+    targets = [{ id: "all", name: "All Devices", origin: "", deviceId: "", ip: "" }, ...devices.map((device) => ({ id: getDeviceOptionValue(device), name: String(device.name || device.deviceId || "Unnamed TV"), origin: getDeviceOptionValue(device), deviceId: String(device.deviceId || ""), ip: String(device.ip || "") }))];
+    nav.innerHTML = targets.map((target) => `<button type="button" class="device-file-nav-item" data-target="${escapeHtml(target.id)}"><strong>${escapeHtml(target.name)}</strong><small>${target.id === "all" ? "All connected TVs" : `IP: ${escapeHtml(target.ip || "Not available")}`}</small></button>`).join("");
+    nav.querySelectorAll("[data-target]").forEach((button) => button.addEventListener("click", () => selectTarget(button.dataset.target)));
+    await selectTarget("all");
+  } catch (_e) {
+    nav.innerHTML = '<div class="section-help">Connected devices could not be loaded.</div>';
+  }
+  deleteButton.addEventListener("click", async () => {
+    const selected = Array.from(overlay.querySelectorAll("input[type=checkbox]:checked")).map((input) => ({ origin: String(input.dataset.origin || ""), section: Number(input.dataset.section || 1), name: input.value }));
+    if (!selected.length) return;
+    if (!(await showConfirmDialog("Delete Files", `Delete ${selected.length} selected file(s)?`, "Delete", "Cancel"))) return;
+    try {
+      const groups = selected.reduce((out, item) => { const key = `${item.origin}|${item.section}`; (out[key] ||= { origin: item.origin, section: item.section, files: [] }).files.push(item.name); return out; }, {});
+      const results = await Promise.all(Object.values(groups).map(async ({ origin, section, files }) => {
+        const response = await fetch(`${origin}/config/delete-section-media`, { method: "POST", headers: buildCmsAuthHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ section, files }) });
+        const result = await response.json();
+        if (!response.ok || !result?.success) throw new Error("delete-failed");
+        return Number(result.deleted || 0);
+      }));
+      showNotice("success", "Files Deleted", `${results.reduce((sum, value) => sum + value, 0)} file(s) deleted.`);
+      await selectTarget(activeTarget);
+    } catch (_e) { showNotice("error", "Delete Failed", "Selected files could not be deleted."); }
   });
 }
 

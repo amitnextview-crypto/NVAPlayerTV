@@ -115,6 +115,7 @@ function readActiveSectionFiles(sectionBase) {
 
 router.get("/", (req, res) => {
   const deviceId = sanitizeDeviceId(req.query.deviceId);
+  const ownOnly = String(req.query.ownOnly || "") === "1";
 
   if (!deviceId) return res.json([]);
 
@@ -136,8 +137,9 @@ router.get("/", (req, res) => {
     };
 
     let chosen = tryReadSectionFiles(deviceId);
-    // If device section exists but is empty/non-media, fall back to "all".
-    if (!chosen.files.length && String(deviceId) !== "all") {
+    // The CMS file manager asks for a device's own uploads only. Playback
+    // requests retain the existing fallback to media uploaded for "all".
+    if (!ownOnly && !chosen.files.length && String(deviceId) !== "all") {
       const fallback = tryReadSectionFiles("all");
       if (fallback.files.length) {
         chosen = fallback;
@@ -166,6 +168,10 @@ router.get("/", (req, res) => {
             name: `${name}#page-${page}`,
             originalName: name,
             section: i,
+            // This tells CMS where the displayed file is physically stored.
+            // A device can inherit media uploaded to "all", so deletion must
+            // target that storage owner rather than the device being viewed.
+            storageDevice: chosen.device,
             url: baseUrl,
             type: "pdf",
             page,
@@ -181,6 +187,7 @@ router.get("/", (req, res) => {
       result.push({
         name,
         section: i,
+        storageDevice: chosen.device,
         url: baseUrl,
         type: ext === ".txt" ? "text" : "media",
         size: stat.size,

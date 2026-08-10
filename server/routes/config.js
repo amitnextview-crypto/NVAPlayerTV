@@ -441,10 +441,13 @@ router.post("/delete-section-media", (req, res) => {
   const safeTarget = sanitizeDeviceId(req.body?.targetDevice);
   const safeSection = Math.max(1, Math.min(3, Number(req.body?.section || 1)));
   const files = Array.isArray(req.body?.files) ? req.body.files : [];
+  const storageOnly = req.body?.storageOnly === true;
   if (!safeTarget || !files.length) {
     return res.status(400).json({ success: false, error: "invalid-delete-request" });
   }
-  const targets = safeTarget === "all"
+  // CMS can show global media as an inherited file on every device. In that
+  // view a delete must only touch the global store, not same-named local files.
+  const targets = safeTarget === "all" && !storageOnly
     ? ["all", ...Object.keys(global.connectedDevices || {})]
     : [safeTarget];
   let deleted = 0;

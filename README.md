@@ -95,6 +95,19 @@ Fresh install ke baad ye permissions allow karna important hai:
 - **Arrow keys**: TV CMS me focus move aur scroll behavior manage karti hain.
 - **Long OK**: native side me auto-reopen toggle behavior configured hai.
 
+### Media File Manager (Files button)
+
+Har Upload Section ke **Files** button se responsive, center-screen popup khulta hai.
+
+- **All Devices**: discovered/connected TVs ki uploaded files device-wise aur Section 1/2/3 wise dikhata hai.
+- **Specific device**: sirf us TV ki files aur uska IP dikhata hai.
+- Empty section me clear empty-state dikhata hai.
+- File ke left checkbox se ek ya multiple files select karein, phir **Delete Selected** karein.
+- Delete request usi TV ke `/config/delete-section-media` endpoint par jaati hai; successful delete ke baad player ko media refresh event milta hai.
+- Popup desktop par left device-list aur mobile par responsive top-grid use karta hai. Slow/offline device ke liye loading timeout hai, isliye baaki devices ki files block nahi hoti.
+
+Important: har TV apna embedded CMS aur local media storage host karta hai. Browser QR aur `TV-IP:8080` agar same TV ka URL kholte hain to same CMS/state dikhate hain. Alag TV IP alag local CMS hote hain; multi-device upload/config actions selected targets par explicitly apply hote hain.
+
 ## 2. Technical Details: Is Project Me Kya Use Hua Hai Aur Kaise Kaam Karta Hai
 
 ### Main stack
@@ -149,6 +162,10 @@ Fresh install ke baad ye permissions allow karna important hai:
   - `app.js`: CMS logic, upload, device selection, preview, templates, TV native bridge.
   - `enterprise.js`: enterprise/group/device management helpers.
 
+- `android/app/src/main/assets/cms/app.js`
+  - Device discovery, multi-device upload/config calls aur Media File Manager UI.
+  - APK CMS feature change ke liye yahi primary browser-side source hai.
+
 - `android/app/src/main/res/`
   - Android resources, launcher icons/background, layouts, styles.
 
@@ -167,6 +184,13 @@ Fresh install ke baad ye permissions allow karna important hai:
 8. Player layout ke hisab se sections render karta hai.
 9. USB, CMS online, CMS offline/cached source priority `sourcePolicy`/source manager logic se decide hoti hai.
 10. Auto-reopen/boot receiver app ko kiosk-style TV use case ke liye alive rakhte hain.
+
+### CMS access consistency
+
+- QR scan aur browser `TV-IP:8080` direct us TV ke embedded CMS ko open karte hain.
+- Admin-only mobile app ko **Open Admin CMS** se target TV CMS choose/connect karna chahiye.
+- Same result ke liye upload, save config aur delete hamesha intended device/group/all-device selection ke saath run karein.
+- APK CMS UI/API change karne par updated APK ko har TV aur Admin-only device par install karein; purane APK me purana CMS asset bundle rahega.
 
 ## 3. Future Changes Notes: Kahan Change Karna Hai Aur Dhyan Rakhne Wali Baatein
 
@@ -222,6 +246,7 @@ Fresh install ke baad ye permissions allow karna important hai:
    - `android/app/src/main/assets/cms/` APK ke andar jaata hai.
    - `server/public/` PC CMS ke liye hai.
    - Agar feature dono CMS me chahiye to dono side check karein.
+   - Android APK build ke liye `android/app/src/main/assets/cms/` mandatory source hai. `server/public/` ko edit karne se installed TV APK update nahi hota.
 
 2. **Native bridge carefully change karein**
    - WebView CMS `window.ReactNativeWebView.postMessage(...)` se RN ko message bhejta hai.
@@ -250,6 +275,13 @@ Fresh install ke baad ye permissions allow karna important hai:
      cd android
      .\gradlew.bat assembleDebug --console plain
      ```
+   - Android release APK:
+     ```sh
+     cd android
+     .\gradlew.bat clean
+     .\gradlew.bat assembleRelease --console plain
+     ```
+     Output: `android/app/build/outputs/apk/release/app-release.apk`
 
 7. **Before final APK**
    - Fresh install test karein.
