@@ -1241,6 +1241,71 @@ input[type="range"] {
   margin: 8px 0 6px;
 }
 
+.schedule-howto {
+  margin: 10px 0 2px;
+  padding: 9px 11px;
+  border-left: 3px solid rgba(62, 207, 188, 0.7);
+  border-radius: 7px;
+  background: rgba(62, 207, 188, 0.07);
+  color: #b9d7e8;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.schedule-manager {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.saved-slots-panel {
+  grid-column: 1 / -1;
+}
+
+.schedule-panel+.schedule-panel {
+  min-width: 0;
+}
+
+.schedule-panel {
+  border: 1px solid rgba(138, 199, 239, 0.18);
+  border-radius: 10px;
+  padding: 11px;
+  background: rgba(17, 37, 53, 0.25);
+}
+
+.schedule-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #dceefa;
+  font-size: 13px;
+}
+
+.schedule-panel-heading>div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.schedule-step {
+  display: inline-grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: rgba(62, 207, 188, 0.16);
+  color: #6ee7d2;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.schedule-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .upload-loader {
   position: fixed;
   inset: 0;

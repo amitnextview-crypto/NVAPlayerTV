@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <title>Signage CMS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="style.css?v=20260808-2" />
 </head>
+
 <body>
   <div class="page-bg"></div>
   <div class="container">
@@ -13,13 +15,14 @@
         <img src="nvlogo.png" alt="SignagePlayerTV Logo" class="hero-logo" />
         <div class="hero-copy">
           <!--<p class="eyebrow">SignagePlayerTV - Developed BY <span class="author-highlight">Nextview</span></p> -->
-        <h1>Signage CMS</h1>
-        <p class="hero-sub">Configure layout, upload media, and push live updates to connected screens.</p>
+          <h1>Signage CMS</h1>
+          <p class="hero-sub">Configure layout, upload media, and push live updates to connected screens.</p>
         </div>
       </div>
       <div class="hero-actions">
         <button class="btn primary compact-btn" type="button" onclick="window.location.reload()">Refresh</button>
-        <button class="btn primary compact-btn" type="button" onclick="window.enterpriseSendPresetAction?.('refresh-content')">Sync</button>
+        <button class="btn primary compact-btn" type="button"
+          onclick="window.enterpriseSendPresetAction?.('refresh-content')">Sync</button>
         <button class="btn primary compact-btn" type="button" onclick="setAutoReopen(true)">Reopen ON</button>
         <button class="btn warning compact-btn" type="button" onclick="setAutoReopen(false)">Reopen OFF</button>
         <button class="btn warning compact-btn" type="button" onclick="clearDeviceCache()">Clear Cache</button>
@@ -36,7 +39,8 @@
               <h2>Select Device</h2>
             </div>
             <div class="selection-buttons selection-buttons-inline">
-              <button id="deviceDashboardBtn" class="btn primary compact-btn" type="button" onclick="toggleDeviceDashboard()">Device Dashboard</button>
+              <button id="deviceDashboardBtn" class="btn primary compact-btn" type="button"
+                onclick="toggleDeviceDashboard()">Device Dashboard</button>
             </div>
           </div>
           <div class="selection-actions">
@@ -58,7 +62,8 @@
                 <h3>Groups</h3>
                 <p class="section-help">Quickly switch the current target group from here.</p>
               </div>
-              <button class="btn primary compact-btn" type="button" onclick="window.enterpriseOpenManageModal?.('groups')">Open Group Manager</button>
+              <button class="btn primary compact-btn" type="button"
+                onclick="window.enterpriseOpenManageModal?.('groups')">Open Group Manager</button>
             </div>
             <div class="compact-groups-row">
               <select id="compactGroupSelect">
@@ -75,7 +80,8 @@
           <div id="appUpdateCard" class="sub-card alerts-card">
             <div class="update-box">
               <input type="file" id="appUpdateFile" accept=".apk,application/vnd.android.package-archive" />
-              <button class="btn primary" type="button" onclick="uploadAndInstallAppUpdate()">Upload And Update App</button>
+              <button class="btn primary" type="button" onclick="uploadAndInstallAppUpdate()">Upload And Update
+                App</button>
             </div>
           </div>
         </section>
@@ -226,7 +232,8 @@
                 </div>
                 <div class="input-action-group">
                   <input type="text" id="scheduleProfileName" placeholder="Profile name, e.g. Morning offers" />
-                  <button class="btn primary compact-btn" type="button" onclick="window.scheduleSaveProfile?.()">Save Profile</button>
+                  <button class="btn primary compact-btn" type="button" onclick="window.scheduleSaveProfile?.()">Save
+                    Profile</button>
                 </div>
                 <div id="scheduleProfilesList" class="schedule-profiles-list"></div>
               </section>
@@ -235,7 +242,8 @@
                 <div class="schedule-panel-heading">
                   <div><span class="schedule-step">2</span><strong>Set time</strong></div>
                 </div>
-                <div id="scheduleProfileEditorStatus" class="schedule-profile-editor-status">Select profile to edit.</div>
+                <div id="scheduleProfileEditorStatus" class="schedule-profile-editor-status">Select profile to edit.
+                </div>
                 <div class="schedule-slot-grid">
                   <label>Profile
                     <select id="scheduleProfileSelect"></select>
@@ -243,7 +251,8 @@
                   <label>Priority
                     <input type="number" id="schedulePriority" value="0" step="1" />
                   </label>
-                  <label>Start time
+                </div>
+                <div> <label>Start time
                     <input type="time" id="scheduleStart" value="09:00" />
                   </label>
                   <label>End time
@@ -261,9 +270,12 @@
                   <label><input type="checkbox" class="schedule-day" value="6" /> Sat</label>
                 </div>
                 <div class="enterprise-actions-row">
-                  <button class="btn primary compact-btn" type="button" onclick="window.scheduleSaveProfileChanges?.()">Save Files + Design to Profile</button>
-                  <button class="btn primary compact-btn" type="button" onclick="window.scheduleSaveEntry?.()">Add Schedule Slot</button>
-                  <button class="btn warning compact-btn" type="button" onclick="window.scheduleClearEntryEditor?.()">Clear Editor</button>
+                  <button class="btn primary compact-btn" type="button"
+                    onclick="window.scheduleSaveProfileChanges?.()">Save Files + Design to Profile</button>
+                  <button class="btn primary compact-btn" type="button" onclick="window.scheduleSaveEntry?.()">Add
+                    Schedule Slot</button>
+                  <button class="btn warning compact-btn" type="button"
+                    onclick="window.scheduleClearEntryEditor?.()">Clear Editor</button>
                 </div>
                 <div id="scheduleConflictWarning" class="schedule-conflict hidden"></div>
               </section>
@@ -302,7 +314,8 @@
 
         <section id="cacheCard" class="card compact-card">
           <h2>Cache</h2>
-          <p class="section-help">Video cache size on device (MB). Higher helps reduce buffering, lower saves storage.</p>
+          <p class="section-help">Video cache size on device (MB). Higher helps reduce buffering, lower saves storage.
+          </p>
           <div class="section-controls-row">
             <div class="section-panel">
               <label>Video Cache (MB)</label>
@@ -317,7 +330,8 @@
       <div class="upload-loader-panel">
         <div class="loader-circle" aria-hidden="true"></div>
         <p id="uploadStatus">Preparing upload...</p>
-        <div class="upload-progress" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="upload-progress" role="progressbar" aria-label="Upload progress" aria-valuemin="0"
+          aria-valuemax="100" aria-valuenow="0">
           <div id="uploadProgressFill" class="upload-progress-fill"></div>
         </div>
         <p id="uploadProgressText" class="upload-progress-text">0%</p>
@@ -359,12 +373,8 @@
         </div>
 
         <div class="dashboard-tools">
-          <input
-            type="text"
-            id="deviceDashboardSearch"
-            placeholder="Search device id, version, state..."
-            oninput="renderHealthSummary(window.__latestDeviceStatusList || [])"
-          />
+          <input type="text" id="deviceDashboardSearch" placeholder="Search device id, version, state..."
+            oninput="renderHealthSummary(window.__latestDeviceStatusList || [])" />
         </div>
 
         <div id="deviceDashboardList" class="dashboard-device-list"></div>
@@ -382,8 +392,10 @@
             <p class="section-help">Manage device groups and device targeting here.</p>
           </div>
           <div class="enterprise-actions-row">
-            <button class="btn primary compact-btn" type="button" onclick="window.enterpriseRefreshAll?.()">Refresh</button>
-            <button class="btn warning compact-btn" type="button" onclick="window.enterpriseCloseManageModal?.()">Close</button>
+            <button class="btn primary compact-btn" type="button"
+              onclick="window.enterpriseRefreshAll?.()">Refresh</button>
+            <button class="btn warning compact-btn" type="button"
+              onclick="window.enterpriseCloseManageModal?.()">Close</button>
           </div>
         </div>
 
@@ -403,10 +415,12 @@
                 <label>Rename Selected Device</label>
                 <div class="input-action-group">
                   <input type="text" id="enterpriseRenameValue" placeholder="Enter a new device name" />
-                  <button class="btn primary compact-btn" type="button" onclick="window.enterpriseRenameDevice?.()">Rename</button>
+                  <button class="btn primary compact-btn" type="button"
+                    onclick="window.enterpriseRenameDevice?.()">Rename</button>
                 </div>
                 <div class="enterprise-actions-row">
-                  <button class="btn primary compact-btn" type="button" onclick="window.enterpriseSaveGroup?.()">Save Group</button>
+                  <button class="btn primary compact-btn" type="button" onclick="window.enterpriseSaveGroup?.()">Save
+                    Group</button>
                 </div>
               </div>
             </div>
@@ -419,4 +433,5 @@
   <script src="app.js?v=20260808-2"></script>
   <script src="enterprise.js?v=20260808-2"></script>
 </body>
+
 </html>

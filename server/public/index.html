@@ -183,32 +183,75 @@
           </div>
         </section>
 
-        <section class="card compact-card">
+        <section id="scheduleCard" class="card compact-card">
           <h2>Scheduling</h2>
-          <p class="section-help">Set active days and time window for playback.</p>
+          <div class="schedule-howto">
+            Create profile → set time → save settings.
+          </div>
           <label class="switch-row">
             <input type="checkbox" id="scheduleEnabled" />
             <span>Enable Schedule</span>
           </label>
 
           <div id="scheduleFields" class="schedule-fields">
-            <div class="form-grid">
-              <label>Start Time</label>
-              <input type="time" id="scheduleStart" value="09:00" />
-              <label>End Time</label>
-              <input type="time" id="scheduleEnd" value="18:00" />
-            </div>
-            <label class="days-label">Active Days</label>
-            <div class="days-grid">
-              <label><input type="checkbox" class="schedule-day" value="0" /> Sun</label>
-              <label><input type="checkbox" class="schedule-day" value="1" /> Mon</label>
-              <label><input type="checkbox" class="schedule-day" value="2" /> Tue</label>
-              <label><input type="checkbox" class="schedule-day" value="3" /> Wed</label>
-              <label><input type="checkbox" class="schedule-day" value="4" /> Thu</label>
-              <label><input type="checkbox" class="schedule-day" value="5" /> Fri</label>
-              <label><input type="checkbox" class="schedule-day" value="6" /> Sat</label>
-            </div>
+            <div class="schedule-manager">
+              <section class="schedule-panel profile-panel">
+                <div class="schedule-panel-heading">
+                  <div><span class="schedule-step">1</span><strong>Create profile</strong></div>
+                </div>
+                <div class="input-action-group">
+                  <input type="text" id="scheduleProfileName" placeholder="Profile name, e.g. Morning offers" />
+                  <button class="btn primary compact-btn" type="button" onclick="window.scheduleSaveProfile?.()">Save Profile</button>
+                </div>
+                <div id="scheduleProfilesList" class="schedule-profiles-list"></div>
+              </section>
 
+              <section class="schedule-panel slot-panel">
+                <div class="schedule-panel-heading">
+                  <div><span class="schedule-step">2</span><strong>Set time</strong></div>
+                </div>
+                <div id="scheduleProfileEditorStatus" class="schedule-profile-editor-status">Select profile to edit.</div>
+                <div class="schedule-slot-grid">
+                  <label>Profile
+                    <select id="scheduleProfileSelect"></select>
+                  </label>
+                  <label>Priority
+                    <input type="number" id="schedulePriority" value="0" step="1" />
+                  </label>
+                  <label>Start time
+                    <input type="time" id="scheduleStart" value="09:00" />
+                  </label>
+                  <label>End time
+                    <input type="time" id="scheduleEnd" value="18:00" />
+                  </label>
+                </div>
+                <label class="days-label">Active days</label>
+                <div class="days-grid">
+                  <label><input type="checkbox" class="schedule-day" value="0" /> Sun</label>
+                  <label><input type="checkbox" class="schedule-day" value="1" /> Mon</label>
+                  <label><input type="checkbox" class="schedule-day" value="2" /> Tue</label>
+                  <label><input type="checkbox" class="schedule-day" value="3" /> Wed</label>
+                  <label><input type="checkbox" class="schedule-day" value="4" /> Thu</label>
+                  <label><input type="checkbox" class="schedule-day" value="5" /> Fri</label>
+                  <label><input type="checkbox" class="schedule-day" value="6" /> Sat</label>
+                </div>
+                <div class="enterprise-actions-row">
+                  <button class="btn primary compact-btn" type="button"
+                    onclick="window.scheduleSaveProfileChanges?.()">Save Files + Design to Profile</button>
+                  <button class="btn primary compact-btn" type="button" onclick="window.scheduleSaveEntry?.()">Add Schedule Slot</button>
+                  <button class="btn warning compact-btn" type="button"
+                    onclick="window.scheduleClearEntryEditor?.()">Clear Editor</button>
+                </div>
+                <div id="scheduleConflictWarning" class="schedule-conflict hidden"></div>
+              </section>
+
+              <section class="schedule-panel saved-slots-panel">
+                <div class="schedule-panel-heading">
+                  <div><span class="schedule-step">3</span><strong>Schedule</strong></div>
+                </div>
+                <div id="scheduleEntriesList" class="schedule-entries-list"></div>
+              </section>
+            </div>
             <div class="fallback-box">
               <label>After End Time Show</label>
               <select id="scheduleFallbackMode">
