@@ -804,7 +804,10 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
             JSONObject config = readConfig();
             config.put("orientation", payload.optString("orientation", payload.optString("value", "horizontal")));
             writeConfig(config);
-            EmbeddedCmsRuntime.emitEvent("config-updated", EmbeddedCmsRuntime.buildSelfStatus(context));
+            JSONObject eventPayload = new JSONObject();
+            eventPayload.put("success", true);
+            eventPayload.put("config", config);
+            EmbeddedCmsRuntime.emitEvent("config-updated", eventPayload);
         } else if ("refresh".equals(action) || "force-sync".equals(action) || "refresh-content".equals(action)) {
             EmbeddedCmsRuntime.emitEvent("media-updated", EmbeddedCmsRuntime.buildSelfStatus(context));
         } else {
@@ -2012,6 +2015,10 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         FileOutputStream output = new FileOutputStream(file, false);
         output.write(String.valueOf(value).getBytes(StandardCharsets.UTF_8));
         output.flush();
+        try {
+            output.getFD().sync();
+        } catch (Exception ignored) {
+        }
         output.close();
     }
 

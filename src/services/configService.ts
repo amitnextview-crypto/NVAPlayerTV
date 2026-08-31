@@ -21,6 +21,17 @@ function fetchWithTimeout(url: string, timeoutMs = CONFIG_FETCH_TIMEOUT_MS): Pro
 
 export async function loadConfig(setConfig: Function) {
   let lastError: any = null;
+  let localCached: any = null;
+
+  try {
+    localCached = await readConfig();
+    if (localCached && typeof localCached === "object") {
+      setConfig(localCached);
+    }
+  } catch (cacheErr) {
+    console.log("Initial cached config load failed", cacheErr);
+  }
+
   try {
     const server = getServer();
     if (!server) throw new Error("server-not-ready");
@@ -45,6 +56,10 @@ export async function loadConfig(setConfig: Function) {
     console.log("Server config failed", e);
   }
 
+  if (localCached && typeof localCached === "object") {
+    return localCached;
+  }
+
   try {
     const cached = await readConfig();
     if (cached && typeof cached === "object") {
@@ -60,3 +75,4 @@ export async function loadConfig(setConfig: Function) {
   }
   return null;
 }
+
