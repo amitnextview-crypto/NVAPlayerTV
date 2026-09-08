@@ -3103,7 +3103,7 @@ async function loadConfig(targetDeviceOverride = "", tokenOverride = 0) {
   document.getElementById("duration3").value = config.sections?.[2]?.slideDuration || 19;
 
   document.getElementById("tickerText").value =
-    config.ticker?.text || "Breaking News: NextView Premium Product New Update Available!";
+    config.ticker?.text || "Thank You for Choosing NextView • Your Trusted Digital Signage Partner • Smart Displays. Professional Solutions. Reliable Support. • +91 92278 96944";
   document.getElementById("tickerFontSize").value = config.ticker?.fontSize || 24;
   document.getElementById("tickerPosition").value = config.ticker?.position || "bottom";
   document.getElementById("tickerColor").value = config.ticker?.color || "#ffffff";

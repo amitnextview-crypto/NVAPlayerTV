@@ -3282,7 +3282,7 @@ function applyConfigToForm(config = {}) {
     setFormValue("duration2", config.sections?.[1]?.slideDuration || 13);
     setFormValue("duration3", config.sections?.[2]?.slideDuration || 19);
 
-    setFormValue("tickerText", config.ticker?.text || "Breaking News: NextView Premium Product New Update Available!");
+    setFormValue("tickerText", config.ticker?.text || "Thank You for Choosing NextView • Your Trusted Digital Signage Partner • Smart Displays. Professional Solutions. Reliable Support. • +91 92278 96944");
     setFormValue("tickerFontSize", config.ticker?.fontSize || 24);
     setFormValue("tickerPosition", config.ticker?.position || "bottom");
     setFormValue("tickerColor", config.ticker?.color || "#ffffff");
