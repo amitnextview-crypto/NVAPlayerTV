@@ -47,6 +47,8 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
     private static final String TAG = "UsbManagerModule";
     private static final long USB_DEBOUNCE_MS = 250L;
     private static final long USB_MOUNT_SETTLE_RESCAN_MS = 2000L;
+    // Also catches documents copied into an already-mounted nvsign folder.
+    private static final long DOCUMENT_WATCH_INTERVAL_MS = 15000L;
     private static final String ADS_DIR_NAME = "Ads";
     private static final String NVSIGN_DIR_NAME = "nvsign";
     private static final List<String> SUPPORTED_EXTENSIONS = Arrays.asList(
@@ -68,6 +70,13 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
 
     private BroadcastReceiver usbReceiver;
     private Runnable pendingScanRunnable;
+    private final Runnable documentWatchRunnable = new Runnable() {
+        @Override
+        public void run() {
+            scheduleScan("document-watch");
+            mainHandler.postDelayed(this, DOCUMENT_WATCH_INTERVAL_MS);
+        }
+    };
     private UsbState lastState = UsbState.empty();
 
     UsbManagerModule(ReactApplicationContext context) {
@@ -75,6 +84,7 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
         this.reactContext = context;
         registerUsbReceiver();
         scheduleScan("init");
+        mainHandler.postDelayed(documentWatchRunnable, DOCUMENT_WATCH_INTERVAL_MS);
     }
 
     @NonNull
@@ -193,6 +203,13 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
             mounted = true;
             Log.d(TAG, "checking mount=" + mountPath);
 
+            // Render pending documents before collecting playable files so the next state already
+            // contains the generated JPG pages and React can refresh without an APK restart.
+            SectionDocumentConverter.convertPendingDocuments(
+                    reactContext,
+                    resolveNamedDirectory(mountRoot, NVSIGN_DIR_NAME)
+            );
+
             List<UsbMediaItem> sectionedFiles = collectNvsignSectionFiles(mountRoot);
             if (!sectionedFiles.isEmpty()) {
                 Log.d(TAG, "nvsign section file count for " + mountPath + " = " + sectionedFiles.size());
@@ -240,6 +257,10 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
             );
             for (File internalRoot : internalRoots) {
                 if (internalRoot == null || !internalRoot.exists()) continue;
+                SectionDocumentConverter.convertPendingDocuments(
+                        reactContext,
+                        resolveNamedDirectory(internalRoot, NVSIGN_DIR_NAME)
+                );
                 List<UsbMediaItem> storageFiles = collectSectionedFiles(internalRoot, NVSIGN_DIR_NAME);
                 Log.d(TAG, "main nvsign direct scan root=" + internalRoot.getAbsolutePath() + " count=" + storageFiles.size());
                 if (storageFiles.isEmpty()) continue;

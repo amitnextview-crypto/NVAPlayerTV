@@ -1,6 +1,5 @@
 const SUPPORTED_FILE_EXT = /\.(mp4|m4v|mov|mkv|webm|jpg|jpeg|png|txt|pdf|ppt|pptx|pptm|pps|ppsx|potx)$/i;
 const VIDEO_FILE_EXT = /\.(mp4|m4v|mov|mkv|webm)$/i;
-const PPT_FILE_EXT = /\.(ppt|pptx|pptm|pps|ppsx|potx)$/i;
 const PPTX_FILE_EXT = /\.(pptx|pptm|ppsx|potx)$/i;
 const PPT_LEGACY_EXT = /\.(ppt|pps)$/i;
 const PPTX_CANVAS_WIDTH = 1920;
@@ -1768,19 +1767,6 @@ function sanitizeUploadErrorMessage(message, statusCode) {
   }
 
   return raw;
-}
-
-async function canUploadPptToSection(deviceId, section) {
-  const targetOrigin = normalizeOrigin(deviceId) || getCurrentOrigin();
-  const res = await fetch(`${targetOrigin}/media-list?ts=${Date.now()}`);
-  const files = await res.json();
-  const hasVideoOrPptElsewhere = (files || []).some((f) => {
-    const name = f.originalName || f.name || "";
-    const sec = Number(f.section || 1);
-    if (sec === Number(section)) return false;
-    return VIDEO_FILE_EXT.test(name) || PPT_FILE_EXT.test(name);
-  });
-  return !hasVideoOrPptElsewhere;
 }
 
 function fileNameBase(name) {
@@ -4965,9 +4951,6 @@ async function uploadMedia(section) {
   const files = getPendingUploadFiles(section);
 
   const { errors, warnings, validFiles, totalSize } = validateUploadFiles(files);
-  const selectedHasVideo = validFiles.some((f) => VIDEO_FILE_EXT.test(f.name || ""));
-  const selectedHasPpt = validFiles.some((f) => PPT_FILE_EXT.test(f.name || ""));
-
   if (errors.length) {
     showNotice("error", "Upload Validation Failed", errors.join("\n"), 7000);
     return;
@@ -5007,19 +4990,6 @@ async function uploadMedia(section) {
       throw new Error("Select at least one device first.");
     }
     primaryOrigin = deviceOrigins[0];
-    if (selectedHasPpt) {
-      const allowed = await canUploadPptToSection(primaryOrigin, section);
-      if (!allowed) {
-        showNotice(
-          "warning",
-          "PPT/Video Upload Restricted",
-          "PPT/video allowed in only one grid section. Remove PPT/video from all sections first.",
-          6500
-        );
-        return;
-      }
-    }
-
     const legacyPpt = uploadFiles.filter((f) => PPT_LEGACY_EXT.test(f.name || ""));
     if (legacyPpt.length) {
       throw new Error("Old PowerPoint (.ppt/.pps) not supported. Please save as .pptx and retry.");
