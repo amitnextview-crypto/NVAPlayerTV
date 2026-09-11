@@ -53,6 +53,8 @@ export interface AppConfig {
     | "reverse-horizontal"
     | "reverse-vertical";
   slideDuration: number;
+  /** Duration used only while playing media found in USB/internal nvsign folders. */
+  usbSlideDuration?: number;
   animation: "slide";
   bgColor: string;
   sections: SectionConfig[];

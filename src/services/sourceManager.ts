@@ -2,6 +2,7 @@ import type { MediaItem } from "./mediaService";
 import {
   createInitialSourcePolicyState,
   reduceBrowserCmsState,
+  reduceCmsOnlyMode,
   reduceCmsUpdate,
   reduceUsbState,
   type PlaybackSource,
@@ -16,6 +17,7 @@ export type SourceSnapshot = {
   usbMountPath: string;
   usbSuppressed: boolean;
   usbSourceType: "usb" | "tvad";
+  cmsOnlyMode: boolean;
 };
 
 type SourceListener = (snapshot: SourceSnapshot) => void;
@@ -29,6 +31,7 @@ function createSnapshot(state: InternalState): SourceSnapshot {
     usbMountPath: state.usbMountPath,
     usbSuppressed: state.usbSuppressed,
     usbSourceType: state.usbSourceType,
+    cmsOnlyMode: state.cmsOnlyMode,
   };
 }
 
@@ -41,6 +44,7 @@ type InternalState = {
   usbMountPath: string;
   usbSuppressed: boolean;
   usbSourceType: "usb" | "tvad";
+  cmsOnlyMode: boolean;
 };
 
 export class SourceManager {
@@ -55,6 +59,11 @@ export class SourceManager {
 
   setBrowserCmsActive(active: boolean) {
     this.state = reduceBrowserCmsState(this.state, active);
+    this.emit();
+  }
+
+  setCmsOnlyMode(cmsOnlyMode: boolean) {
+    this.state = reduceCmsOnlyMode(this.state, cmsOnlyMode);
     this.emit();
   }
 

@@ -41,6 +41,8 @@ export default function UsbSettingsPanel({ visible, config, activeSectionCount, 
     onSave({
       ...config,
       ...draft,
+      cmsOnlyPlayback: draft?.cmsOnlyPlayback !== false,
+      usbSlideDuration: normalizeNumber(draft?.usbSlideDuration, 5, 1, 3600),
       ticker: {
         ...(config?.ticker || {}),
         ...tickerDraft,
@@ -91,6 +93,33 @@ export default function UsbSettingsPanel({ visible, config, activeSectionCount, 
             </Pressable>
             <Text style={styles.label}>USB layout template</Text>
             <View style={styles.autoLayout}><Text style={styles.optionText}>{activeSectionCount <= 1 ? "Fullscreen" : `Grid ${activeSectionCount}`}</Text><Text style={styles.optionHint}>Auto-selected from populated USB sections</Text></View>
+            <Text style={styles.label}>Playback source</Text>
+            <Pressable
+              style={({ hovered, pressed }: any) => [styles.sourceToggle, draft?.cmsOnlyPlayback !== false ? styles.sourceToggleOn : styles.sourceToggleOff, (focusedField === "cms-only-toggle" || hovered || pressed) && styles.focused]}
+              onFocus={() => setFocusedField("cms-only-toggle")}
+              onBlur={() => setFocusedField("")}
+              onPress={() => setDraft((value: any) => ({ ...value, cmsOnlyPlayback: value?.cmsOnlyPlayback === false }))}
+            >
+              <View><Text style={styles.optionText}>CMS Only: {draft?.cmsOnlyPlayback !== false ? "ON" : "OFF"}</Text><Text style={styles.optionHint}>{draft?.cmsOnlyPlayback !== false ? "Only CMS uploaded content and CMS configuration will play." : "USB/Storage nvsign/section1-3 has first priority over CMS."}</Text></View>
+              <View style={[styles.toggleTrack, draft?.cmsOnlyPlayback !== false && styles.toggleTrackOn]}><View style={[styles.toggleKnob, draft?.cmsOnlyPlayback !== false && styles.toggleKnobOn]} /></View>
+            </Pressable>
+            <Text style={styles.label}>USB/Storage image slide time</Text>
+            <View style={styles.durationControl}>
+              <Pressable
+                style={({ hovered, pressed }: any) => [styles.durationButton, (focusedField === "usb-duration-decrease" || hovered || pressed) && styles.focused]}
+                onFocus={() => setFocusedField("usb-duration-decrease")}
+                onBlur={() => setFocusedField("")}
+                onPress={() => setDraft((value: any) => ({ ...value, usbSlideDuration: Math.max(1, Number(value?.usbSlideDuration || 5) - 1) }))}
+              ><Text style={styles.durationButtonText}>−</Text></Pressable>
+              <View style={styles.durationValue}><Text style={styles.optionText}>{Math.max(1, Number(draft?.usbSlideDuration || 5))} sec</Text><Text style={styles.optionHint}>Images only</Text></View>
+              <Pressable
+                style={({ hovered, pressed }: any) => [styles.durationButton, (focusedField === "usb-duration-increase" || hovered || pressed) && styles.focused]}
+                onFocus={() => setFocusedField("usb-duration-increase")}
+                onBlur={() => setFocusedField("")}
+                onPress={() => setDraft((value: any) => ({ ...value, usbSlideDuration: Math.min(3600, Number(value?.usbSlideDuration || 5) + 1) }))}
+              ><Text style={styles.durationButtonText}>+</Text></Pressable>
+            </View>
+            <Text style={styles.optionHint}>Default is 5 seconds. This setting applies only to files played from USB or internal Storage, not CMS content.</Text>
             {activeSectionCount >= 2 ? <>
               <Text style={styles.label}>Grid Layout Options</Text>
               <Text style={styles.optionHint}>Select the exact arrangement you want on screen.</Text>
@@ -139,6 +168,8 @@ const styles = StyleSheet.create({
   input: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, color: "#fff", backgroundColor: "#12283a", borderWidth: 1, borderColor: "rgba(126,205,255,0.28)" },
   wifi: { marginTop: 8, borderRadius: 12, padding: 14, backgroundColor: "#155f9f" }, wifiText: { color: "#fff", fontWeight: "800", fontSize: 16 },
   storageRefresh: { marginTop: 8, borderRadius: 12, padding: 14, backgroundColor: "#126b87", borderWidth: 1, borderColor: "#4de0d0" },
+  sourceToggle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, borderRadius: 12, padding: 14, borderWidth: 2 }, sourceToggleOn: { backgroundColor: "#155f9f", borderColor: "#65c9ff" }, sourceToggleOff: { backgroundColor: "#126b87", borderColor: "#4de0d0" }, toggleTrack: { width: 46, height: 25, padding: 3, borderRadius: 999, backgroundColor: "#526b7b", justifyContent: "center" }, toggleTrackOn: { backgroundColor: "#42c97b" }, toggleKnob: { width: 19, height: 19, borderRadius: 999, backgroundColor: "#fff", transform: [{ translateX: 0 }] }, toggleKnobOn: { transform: [{ translateX: 21 }] },
+  durationControl: { flexDirection: "row", alignItems: "center", gap: 10 }, durationButton: { width: 56, height: 54, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "#126b87", borderWidth: 2, borderColor: "#4de0d0" }, durationButtonText: { color: "#fff", fontSize: 28, fontWeight: "800", lineHeight: 32 }, durationValue: { flex: 1, minHeight: 54, justifyContent: "center", paddingHorizontal: 14, borderRadius: 12, backgroundColor: "#12283a", borderWidth: 1, borderColor: "rgba(126,205,255,0.28)" },
   layoutGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 }, layoutChoice: { flexGrow: 1, flexBasis: "42%", borderRadius: 12, padding: 13, backgroundColor: "#12283a", borderWidth: 2, borderColor: "rgba(126,205,255,0.28)" }, layoutSelected: { borderColor: "#1689e8", backgroundColor: "#123c59" },
   ratioChoice: { flexGrow: 1, flexBasis: "27%", borderRadius: 12, padding: 12, backgroundColor: "#12283a", borderWidth: 2, borderColor: "rgba(126,205,255,0.28)", alignItems: "center" },
   tickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 }, field: { flexGrow: 1, flexBasis: "44%" }, fieldLabel: { color: "#b9d7e8", marginBottom: 5, fontSize: 12, fontWeight: "700" },

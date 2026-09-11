@@ -12,6 +12,7 @@ export type SourcePolicyState = {
   usbMountPath: string;
   usbSuppressed: boolean;
   usbSourceType: "usb" | "tvad";
+  cmsOnlyMode: boolean;
 };
 
 export function createInitialSourcePolicyState(): SourcePolicyState {
@@ -24,11 +25,14 @@ export function createInitialSourcePolicyState(): SourcePolicyState {
     usbMountPath: "",
     usbSuppressed: false,
     usbSourceType: "usb",
+    // Keep CMS isolated by default. USB/Storage priority is explicitly enabled from its settings.
+    cmsOnlyMode: true,
   };
 }
 
 export function pickPlaybackSource(state: SourcePolicyState): PlaybackSource {
   if (
+    !state.cmsOnlyMode &&
     state.usbMounted &&
     state.usbHasPlayableMedia &&
     state.usbPlaylist.length > 0 &&
@@ -78,6 +82,18 @@ export function reduceBrowserCmsState(
 
 export function reduceCmsUpdate(current: SourcePolicyState): SourcePolicyState {
   const next: SourcePolicyState = { ...current };
+  next.activeSource = pickPlaybackSource(next);
+  return next;
+}
+
+export function reduceCmsOnlyMode(
+  current: SourcePolicyState,
+  cmsOnlyMode: boolean
+): SourcePolicyState {
+  const next: SourcePolicyState = {
+    ...current,
+    cmsOnlyMode: !!cmsOnlyMode,
+  };
   next.activeSource = pickPlaybackSource(next);
   return next;
 }

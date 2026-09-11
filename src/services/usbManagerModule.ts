@@ -5,6 +5,8 @@ const { UsbManagerModule } = NativeModules as any;
 
 export type UsbState = {
   mounted: boolean;
+  /** Physical external USB drive connection, separate from internal Storage playback. */
+  usbMounted?: boolean;
   hasPlayableMedia: boolean;
   mountPath: string;
   mountPaths: string[];
@@ -15,6 +17,7 @@ export type UsbState = {
 
 const EMPTY_USB_STATE: UsbState = {
   mounted: false,
+  usbMounted: false,
   hasPlayableMedia: false,
   mountPath: "",
   mountPaths: [],
@@ -24,6 +27,7 @@ const EMPTY_USB_STATE: UsbState = {
 function normalizeUsbState(value: any): UsbState {
   return {
     mounted: !!value?.mounted,
+    usbMounted: !!value?.usbMounted,
     hasPlayableMedia: !!value?.hasPlayableMedia,
     mountPath: String(value?.mountPath || ""),
     mountPaths: Array.isArray(value?.mountPaths)

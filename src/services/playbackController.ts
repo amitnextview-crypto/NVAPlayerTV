@@ -41,6 +41,10 @@ export class PlaybackController {
   }
 
   buildUsbConfig(baseConfig: AppConfig | any, playlist: MediaItem[] = []) {
+    const requestedUsbDuration = Number(baseConfig?.usbSlideDuration);
+    const usbSlideDuration = Number.isFinite(requestedUsbDuration)
+      ? Math.max(1, Math.min(3600, requestedUsbDuration))
+      : 5;
     const activeSections = Array.from(
       new Set(playlist.map((item) => Math.max(1, Math.min(3, Number(item?.section || 1)))))
     ).sort((a, b) => a - b);
@@ -53,7 +57,8 @@ export class PlaybackController {
         sourceUrl: "",
         // Offline USB/TvAd media should fill its assigned grid without cropping.
         usbFitMode: "stretch",
-        slideDuration: Number(sourceSection?.slideDuration || baseConfig?.slideDuration || 5),
+        // SlideRenderer applies this timer to non-video files only, so video playback is unchanged.
+        slideDuration: usbSlideDuration,
       };
     });
     return {

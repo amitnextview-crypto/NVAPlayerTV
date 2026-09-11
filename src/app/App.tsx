@@ -92,6 +92,7 @@ const LICENSE_INIT_RETRY_DELAY_MS = 1200;
 const APK_UPDATE_PENDING_KEY = "apk_update_pending_v1";
 const APK_UPDATE_PENDING_MAX_AGE_MS = 1000 * 60 * 60;
 const SPECIAL_PERMISSION_FLOW_KEY = "special_permission_flow_handled_v1";
+const CMS_ONLY_PLAYBACK_KEY = "cms_only_playback_v1";
 const CACHE_GUARD_INTERVAL_MS = 120000;
 const CACHE_MIN_FREE_BYTES = 1024 * 1024 * 1024;
 const SMALL_CACHE_BLOCK_BYTES = 30 * 1024 * 1024;
@@ -108,6 +109,7 @@ const INITIAL_SOURCE_SNAPSHOT: SourceSnapshot = {
   usbMountPath: "",
   usbSuppressed: false,
   usbSourceType: "usb",
+  cmsOnlyMode: true,
 };
 
 type RuntimeErrorInfo = {
@@ -203,6 +205,7 @@ export default function App() {
   const [adminInitialView, setAdminInitialView] = useState<"access" | "cms" | "adminCms">("access");
   const [ready, setReady] = useState(false);
   const [config, setConfig] = useState<any>(null);
+  const [cmsOnlyPlayback, setCmsOnlyPlayback] = useState(true);
   const [scheduleClockTick, setScheduleClockTick] = useState(() => Date.now());
   const [mediaVersion, setMediaVersion] = useState(0);
   const [connectSubtitleText, setConnectSubtitleText] = useState(
@@ -319,6 +322,27 @@ export default function App() {
     overlay: false,
   });
   const specialPermissionActivePromptRef = useRef<"" | "manageAllFiles" | "overlay">("");
+  const cmsOnlyPlaybackRef = useRef(true);
+
+  useEffect(() => {
+    let mounted = true;
+    AsyncStorage.getItem(CMS_ONLY_PLAYBACK_KEY)
+      .then((value) => {
+        if (mounted && value === "false") {
+          cmsOnlyPlaybackRef.current = false;
+          setCmsOnlyPlayback(false);
+        }
+      })
+      .catch(() => {
+        // CMS Only stays enabled by default when local settings cannot be read.
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    cmsOnlyPlaybackRef.current = cmsOnlyPlayback;
+    sourceManagerRef.current.setCmsOnlyMode(cmsOnlyPlayback);
+  }, [cmsOnlyPlayback]);
 
   useEffect(() => {
     let mounted = true;
@@ -410,7 +434,9 @@ export default function App() {
       const eventType = String(event?.eventType || "").toLowerCase();
       const keyAction = Number(event?.eventKeyAction ?? -1);
       if (keyAction !== -1 && keyAction !== 1) return;
-      if (eventType === "down" && sourceSnapshot.activeSource === "USB" && !showAdmin && !showUsbSettings) {
+      // USB settings must remain reachable while CMS Only is enabled, even when no
+      // USB/storage media is currently active. Otherwise the user cannot turn it off.
+      if (eventType === "down" && !showAdmin && !showUsbSettings) {
         setShowUsbSettings(true);
         return;
       }
@@ -420,7 +446,7 @@ export default function App() {
     return () => {
       sub.remove();
     };
-  }, [handleTvBackAction, showAdmin, showUsbSettings, sourceSnapshot.activeSource]);
+  }, [handleTvBackAction, showAdmin, showUsbSettings]);
 
   useEffect(() => {
     offlineNoticeRef.current = offlineNotice;
@@ -476,6 +502,18 @@ export default function App() {
         const permissionGranted = await ensureUsbMediaReadPermissions();
         console.log("[USB_PERM]", permissionGranted ? "granted" : "denied-scan-anyway");
         const state = incomingState || (await refreshUsbState());
+        const scanReason = String(state?.reason || "").toLowerCase();
+        const isUsbAttachOrRemovalEvent = /media_(mounted|removed|unmounted|eject|bad_removal)/.test(scanReason);
+        // Do not overwrite the user's saved USB/Storage choice during init, watcher or manual
+        // scans. Only a real USB attach/removal event changes CMS Only automatically.
+        if (isUsbAttachOrRemovalEvent) {
+          const nextCmsOnlyPlayback = !state?.usbMounted;
+          if (cmsOnlyPlaybackRef.current !== nextCmsOnlyPlayback) {
+            cmsOnlyPlaybackRef.current = nextCmsOnlyPlayback;
+            setCmsOnlyPlayback(nextCmsOnlyPlayback);
+            void AsyncStorage.setItem(CMS_ONLY_PLAYBACK_KEY, String(nextCmsOnlyPlayback));
+          }
+        }
         const playbackState = await getUsbStateForPlayback(state);
         console.log("[USB_REFRESH]", JSON.stringify(playbackState));
         if (!mounted) return;
@@ -2594,18 +2632,33 @@ export default function App() {
   }
 
   const saveUsbSettings = async (nextConfig: any) => {
-    setConfig(nextConfig);
-    await writeConfig(nextConfig);
+    const { cmsOnlyPlayback: nextCmsOnlyPlayback, ...configToSave } = nextConfig;
+    const cmsOnly = nextCmsOnlyPlayback !== false;
+    cmsOnlyPlaybackRef.current = cmsOnly;
+    setCmsOnlyPlayback(cmsOnly);
+    await AsyncStorage.setItem(CMS_ONLY_PLAYBACK_KEY, String(cmsOnly));
+    setConfig(configToSave);
+    await writeConfig(configToSave);
     setShowUsbSettings(false);
   };
 
   const refreshOfflineStorage = async () => {
+    // The settings page can be opened before the normal USB watcher gets a chance to request
+    // Android media permission. Ask here too, then force a native nvsign rescan.
+    await ensureUsbMediaReadPermissions();
     const rawState = await refreshUsbState();
     const playbackState = await getUsbStateForPlayback(rawState);
     sourceManagerRef.current.onUsbState(playbackState);
+    // Keep the manually refreshed state on the same path as the automatic watcher so newly
+    // discovered files are immediately available to the player.
+    const cachedState = await warmUsbPlaybackCache(rawState);
+    const resolvedState = cachedState
+      ? await getUsbStateForPlayback(cachedState)
+      : playbackState;
+    sourceManagerRef.current.onUsbState(resolvedState);
     return {
-      count: Array.isArray(playbackState?.playlist) ? playbackState.playlist.length : 0,
-      sourceName: playbackState?.sourceType === "tvad" ? "Storage" : "USB",
+      count: Array.isArray(resolvedState?.playlist) ? resolvedState.playlist.length : 0,
+      sourceName: resolvedState?.sourceType === "tvad" ? "Storage" : "USB",
     };
   };
 
@@ -2670,7 +2723,7 @@ export default function App() {
         />
         <UsbSettingsPanel
           visible={showUsbSettings}
-          config={config || safeConfig}
+          config={{ ...(config || safeConfig), cmsOnlyPlayback }}
           activeSectionCount={new Set(sourceSnapshot.usbPlaylist.map((item: any) => Number(item?.section || 1))).size}
           sourceName={sourceSnapshot.usbSourceType === "tvad" ? "Storage" : "USB"}
           onClose={() => setShowUsbSettings(false)}
