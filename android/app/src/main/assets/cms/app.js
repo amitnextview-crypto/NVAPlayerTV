@@ -101,6 +101,7 @@ const seenApkUpdateSuccessNotices = new Set();
 let currentDeviceMap = new Map();
 let selectedDeviceOrigins = new Set(loadStoredSelectedOrigins());
 let cmsAccessOverrides = {};
+let nativeDiscoveryRequested = false;
 let scheduleManagerState = { profiles: [], entries: [], editingEntryId: "", editingProfileId: "" };
 let cmsFormDirty = false;
 let cmsFormHydrating = false;
@@ -590,6 +591,12 @@ function isTvHostedDeviceStatus(status) {
 
 async function scanSubnetForDevices(force = false) {
   if (IS_TV_COMPACT_MODE) return null;
+  // A desktop browser used to probe every address on the subnet (and several
+  // ports per address) in the background. Besides being noisy, that can occupy
+  // the browser's connection pool and delay requests to the TV currently being
+  // managed. Native discovery already supplies the normal device list, so an
+  // expanded subnet probe is reserved for an explicit refresh only.
+  if (!force) return null;
   const now = Date.now();
   if (subnetScanInFlight) return subnetScanInFlight;
   if (!force && now - lastSubnetScanAt < 20000) return null;
@@ -875,6 +882,7 @@ async function postToSelectedDevices(path, body = {}) {
   const responses = await Promise.all(origins.map(async (origin) => {
     const res = await fetch(`${origin}${path}`, {
       method: "POST",
+      cache: "no-store",
       headers: buildCmsAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(body),
     });
@@ -1321,6 +1329,7 @@ function buildChunkUploadKey(origin, section, files) {
 async function postJsonToOrigin(url, payload) {
   const res = await fetch(url, {
     method: "POST",
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       ...buildCmsAuthHeaders(),
@@ -3766,7 +3775,10 @@ function startAlertsPolling() {
     clearInterval(alertsPollTimer);
   }
   loadDeviceAlerts();
-  alertsPollTimer = setInterval(loadDeviceAlerts, IS_TV_COMPACT_MODE ? 15000 : 5000);
+  // Status collection calculates storage/media statistics on the TV. A modest
+  // cadence keeps the dashboard current without competing with commands or
+  // uploads from a desktop browser.
+  alertsPollTimer = setInterval(loadDeviceAlerts, 15000);
 }
 
 function onSectionSourceChange(section) {
@@ -4932,10 +4944,22 @@ async function loadDevices(options = {}) {
   syncHiddenDeviceSelect();
   persistSelectedOrigins();
   renderDeviceChecklist();
+  // Let the TV perform one bounded native LAN discovery after a desktop CMS
+  // page opens. This keeps all same-network TVs visible without reviving the
+  // browser's old all-address/all-port request flood.
+  if (!nativeDiscoveryRequested && !IS_TV_COMPACT_MODE) {
+    nativeDiscoveryRequested = true;
+    fetch(`/devices/refresh?ts=${Date.now()}`, { cache: "no-store" })
+      .then(() => {
+        // Show devices as the bounded native pass completes instead of making
+        // the operator wait for the normal dashboard poll.
+        setTimeout(() => { void loadDeviceAlerts(); }, 2500);
+        setTimeout(() => { void loadDeviceAlerts(); }, 9000);
+      })
+      .catch(() => {});
+  }
   if (options?.waitForScan || options?.forceScan) {
-    await scanSubnetForDevices(!!options.forceScan);
-  } else {
-    void scanSubnetForDevices();
+    await scanSubnetForDevices(true);
   }
 }
 
@@ -5035,7 +5059,11 @@ async function uploadMedia(section) {
       `Preparing ${uploadFiles.length} file(s), ${formatBytes(totalSize)} for ${deviceOrigins.length} device${deviceOrigins.length === 1 ? "" : "s"}`
     );
 
-    const skipDuplicateScan = isLargeUploadSet(uploadFiles);
+    // For one selected TV, the duplicate check only adds a serial /media-list
+    // round-trip before every upload. The server atomically replaces that
+    // section anyway, so start the transfer immediately. Keep the check when
+    // several TVs are selected, where it can still avoid unnecessary traffic.
+    const skipDuplicateScan = targetDevices.length <= 1 || isLargeUploadSet(uploadFiles);
     const duplicateOrigins = skipDuplicateScan
       ? new Set()
       : await detectDuplicateUploadTargets(targetDevices, section, uploadFiles);

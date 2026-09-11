@@ -549,6 +549,13 @@ public final class EmbeddedCmsRuntime {
         return array;
     }
 
+    public static void refreshDiscoveredDevices(Context context) {
+        ensureStarted(context);
+        if (discoveryManager != null) {
+            discoveryManager.refreshNow();
+        }
+    }
+
     public static WritableMap getCmsAccessInfoMap(Context context) {
         JSONObject status = buildSelfStatus(context);
         WritableMap map = Arguments.createMap();

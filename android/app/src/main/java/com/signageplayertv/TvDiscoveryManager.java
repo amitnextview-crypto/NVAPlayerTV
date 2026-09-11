@@ -13,18 +13,24 @@ import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URL;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public final class TvDiscoveryManager {
     private static final String SERVICE_TYPE = "_tv._tcp.";
-    private static final long DISCOVERY_STALE_MS = 30000L;
-    private static final long SUBNET_PROBE_INTERVAL_MS = 15000L;
-    private static final int[] FALLBACK_SCAN_PORTS = new int[]{8080, 8081, 9090, 10080};
+    private static final long DISCOVERY_STALE_MS = 90000L;
+    private static final long SUBNET_PROBE_INTERVAL_MS = 60000L;
+    private static final int PRIMARY_CMS_PORT = 8080;
+    private static final int MAX_SUBNET_PROBES = 24;
+    private static final int PROBE_CONNECT_TIMEOUT_MS = 350;
+    private static final int PROBE_READ_TIMEOUT_MS = 700;
 
     private final Context context;
-    private final ExecutorService executor = Executors.newFixedThreadPool(24);
+    // One coordinator plus a bounded set of concurrent status probes.
+    private final ExecutorService executor = Executors.newFixedThreadPool(MAX_SUBNET_PROBES + 1);
     private final Map<String, JSONObject> discoveredByIp = new ConcurrentHashMap<>();
 
     private NsdManager nsdManager;
@@ -41,22 +47,30 @@ public final class TvDiscoveryManager {
     public synchronized void start() {
         if (started) return;
         nsdManager = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
-        if (nsdManager == null) return;
         started = true;
-        registerService();
-        discoverServices();
+        if (nsdManager != null) {
+            registerService();
+            discoverServices();
+        }
         probeLocalSubnet(true);
     }
 
     public synchronized void restartAdvertising() {
-        if (!started || nsdManager == null) return;
-        try {
-            if (registrationListener != null) {
-                nsdManager.unregisterService(registrationListener);
+        if (!started) return;
+        if (nsdManager != null) {
+            try {
+                if (registrationListener != null) {
+                    nsdManager.unregisterService(registrationListener);
+                }
+            } catch (Exception ignored) {
             }
-        } catch (Exception ignored) {
+            registerService();
         }
-        registerService();
+        probeLocalSubnet(true);
+    }
+
+    /** Starts a fresh LAN check without making the caller wait for every host. */
+    public void refreshNow() {
         probeLocalSubnet(true);
     }
 
@@ -73,17 +87,37 @@ public final class TvDiscoveryManager {
                 if (parts.length != 4) return;
                 String prefix = parts[0] + "." + parts[1] + "." + parts[2] + ".";
                 String selfId = EmbeddedCmsRuntime.getDeviceId(context);
+                // All normal installations use port 8080. Probe that port in
+                // bounded parallel batches instead of checking every host and
+                // four ports serially (which could take many minutes). TVs on
+                // a non-default port remain discoverable through Android NSD.
+                CountDownLatch pending = new CountDownLatch(254);
                 for (int host = 1; host < 255; host += 1) {
                     String candidateIp = prefix + host;
-                    if (candidateIp.equals(ip)) continue;
-                    for (int port : FALLBACK_SCAN_PORTS) {
-                        JSONObject status = fetchStatusSync(candidateIp, port);
-                        if (status == null) continue;
-                        String deviceId = status.optString("deviceId", "");
-                        if (!deviceId.isEmpty() && deviceId.equals(selfId)) continue;
-                        discoveredByIp.put(candidateIp, status);
-                        break;
+                    if (candidateIp.equals(ip)) {
+                        pending.countDown();
+                        continue;
                     }
+                    final String targetIp = candidateIp;
+                    executor.execute(() -> {
+                        try {
+                            JSONObject status = fetchStatusSync(targetIp, PRIMARY_CMS_PORT);
+                            if (status == null) return;
+                            String deviceId = status.optString("deviceId", "");
+                            if (!deviceId.isEmpty() && deviceId.equals(selfId)) return;
+                            discoveredByIp.put(targetIp, status);
+                        } finally {
+                            pending.countDown();
+                        }
+                    });
+                }
+                try {
+                    // 253 hosts / 24 active workers need roughly eight seconds
+                    // in the all-timeout case; keep the in-flight guard until
+                    // that bounded pass is genuinely finished.
+                    pending.await(12000L, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
                 }
             } catch (Exception ignored) {
             } finally {
@@ -202,8 +236,8 @@ public final class TvDiscoveryManager {
             int safePort = port > 0 ? port : EmbeddedCmsRuntime.DEFAULT_SERVER_PORT;
             URL url = new URL("http://" + ip + ":" + safePort + "/status");
             connection = (HttpURLConnection) url.openConnection();
-            connection.setConnectTimeout(1200);
-            connection.setReadTimeout(1200);
+            connection.setConnectTimeout(PROBE_CONNECT_TIMEOUT_MS);
+            connection.setReadTimeout(PROBE_READ_TIMEOUT_MS);
             connection.setRequestProperty("Cache-Control", "no-cache");
             connection.connect();
             if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) return null;

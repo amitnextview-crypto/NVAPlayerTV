@@ -123,6 +123,10 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
             if ("/devices".equals(uri)) {
                 return json(EmbeddedCmsRuntime.getDevicesJson(context));
             }
+            if ("/devices/refresh".equals(uri)) {
+                EmbeddedCmsRuntime.refreshDiscoveredDevices(context);
+                return json(EmbeddedCmsRuntime.getDevicesJson(context));
+            }
             if ("/device-status".equals(uri)) {
                 return json(EmbeddedCmsRuntime.getDevicesJson(context));
             }
@@ -359,10 +363,20 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
     }
 
     private Response handleRestartDevice() throws Exception {
-        restartAppInternal(false);
         JSONObject out = new JSONObject();
         out.put("success", true);
         out.put("message", "Restarting app.");
+        // Send the HTTP acknowledgement before replacing the activity. This is
+        // especially important for remote desktop browsers, which otherwise
+        // can wait for the connection to be torn down instead of seeing an
+        // immediate successful command response.
+        new Thread(() -> {
+            try {
+                Thread.sleep(150L);
+            } catch (InterruptedException ignored) {
+            }
+            restartAppInternal(false);
+        }, "cms-restart-command").start();
         return json(out);
     }
 
@@ -372,7 +386,7 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         if ("/style.css".equals(value) || "/app.js".equals(value) || "/enterprise.js".equals(value) || "/app-v2.js".equals(value) || "/nvlogo.png".equals(value)) {
             return false;
         }
-        if ("/ping".equals(value) || "/network-state".equals(value) || "/status".equals(value) || "/devices".equals(value) || "/device-status".equals(value)) {
+        if ("/ping".equals(value) || "/network-state".equals(value) || "/status".equals(value) || "/devices".equals(value) || "/devices/refresh".equals(value) || "/device-status".equals(value)) {
             return false;
         }
         if ("/config".equals(value) && Method.GET.equals(method)) {
