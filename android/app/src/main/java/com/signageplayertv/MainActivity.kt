@@ -16,12 +16,11 @@ import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
 import android.widget.Toast
-import java.io.File
 
 class MainActivity : ReactActivity() {
 
   companion object {
-    private const val REOPEN_DELAY_MS = 10000L
+    private const val REOPEN_DELAY_MS = 2000L
     private const val REOPEN_REQ_CODE = 7201
     private const val PREFS_NAME = "kiosk_prefs"
     private const val KEY_AUTO_REOPEN_ENABLED = "auto_reopen_enabled"
@@ -187,10 +186,12 @@ override fun onWindowFocusChanged(hasFocus: Boolean) {
       return true
     }
 
-    // Long-press BACK: clear signage data and restart app.
+    // Long-press BACK only disables auto-reopen; it never clears data or closes the player.
     if (keyCode == KeyEvent.KEYCODE_BACK) {
       suppressNextBackKeyUp = true
-      clearSignageDataAndRestart()
+      setAutoReopenEnabled(false)
+      cancelScheduledReopen()
+      Toast.makeText(this, "Auto reopen disabled", Toast.LENGTH_SHORT).show()
       return true
     }
 
@@ -236,24 +237,4 @@ override fun onWindowFocusChanged(hasFocus: Boolean) {
       .apply()
   }
 
-  private fun clearSignageDataAndRestart() {
-    try {
-      getPrefs().edit()
-        .putBoolean(KEY_AUTO_REOPEN_ENABLED, false)
-        .putBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, true)
-        .apply()
-      cancelScheduledReopen()
-
-      // Remove app-level signage files without full "clear data" settings flow.
-      val filesRoot = filesDir
-      File(filesRoot, "media").deleteRecursively()
-      File(filesRoot, "config.json").delete()
-      cacheDir.deleteRecursively()
-    } catch (_: Exception) {
-      // Continue to restart even if partial cleanup fails.
-    }
-
-    Toast.makeText(this, "Data cleared, reopen disabled", Toast.LENGTH_SHORT).show()
-    finishAffinity()
-  }
 }

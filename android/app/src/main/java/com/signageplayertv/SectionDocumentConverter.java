@@ -29,17 +29,27 @@ final class SectionDocumentConverter {
     private SectionDocumentConverter() {
     }
 
+    interface ProgressListener { void onProgress(int percent, String message); }
+
     static boolean convertPendingDocuments(Context context, File nvsignRoot) {
+        return convertPendingDocuments(context, nvsignRoot, null);
+    }
+
+    static boolean convertPendingDocuments(Context context, File nvsignRoot, ProgressListener listener) {
         if (nvsignRoot == null || !nvsignRoot.isDirectory() || !nvsignRoot.canRead()) return false;
+        int totalDocuments = countPdfDocuments(nvsignRoot);
+        if (totalDocuments > 0 && listener != null) listener.onProgress(0, "PDF files found. Preparing conversion...");
+        int[] completedDocuments = {0};
         boolean changed = false;
         for (int section = 1; section <= 3; section += 1) {
             File sectionDir = new File(nvsignRoot, "section" + section);
-            changed |= convertFolder(context, sectionDir);
+            changed |= convertFolder(context, sectionDir, listener, totalDocuments, completedDocuments);
         }
+        if (totalDocuments > 0 && listener != null) listener.onProgress(100, "Images ready to play");
         return changed;
     }
 
-    private static boolean convertFolder(Context context, File directory) {
+    private static boolean convertFolder(Context context, File directory, ProgressListener listener, int totalDocuments, int[] completedDocuments) {
         if (directory == null || !directory.isDirectory() || !directory.canRead()) return false;
         cleanupInterruptedStaging(directory);
         boolean changed = false;
@@ -50,13 +60,14 @@ final class SectionDocumentConverter {
             if (child == null) continue;
             if (child.isDirectory()) {
                 // Conversion staging is never treated as playable content or a source folder.
-                if (!child.getName().startsWith(".nvsign-convert-")) changed |= convertFolder(context, child);
+                if (!child.getName().startsWith(".nvsign-convert-")) changed |= convertFolder(context, child, listener, totalDocuments, completedDocuments);
                 continue;
             }
             if (!child.isFile() || !child.canRead()) continue;
             String extension = extensionOf(child.getName());
             if ("pdf".equals(extension)) {
-                changed |= convertPdf(context, child);
+                changed |= convertPdf(context, child, listener, totalDocuments, completedDocuments[0]);
+                completedDocuments[0] += 1;
             } else if (isOfficeExtension(extension)) {
                 // Android has no built-in renderer for legacy Office, DOCX or PPTX. Keep the source
                 // intact until a real renderer is supplied; deleting it would violate conversion safety.
@@ -66,7 +77,7 @@ final class SectionDocumentConverter {
         return changed;
     }
 
-    private static boolean convertPdf(Context context, File source) {
+    private static boolean convertPdf(Context context, File source, ProgressListener listener, int totalDocuments, int completedDocuments) {
         File parent = source.getParentFile();
         if (parent == null) return false;
         String base = baseName(source.getName());
@@ -80,6 +91,7 @@ final class SectionDocumentConverter {
             renderer = new PdfRenderer(descriptor);
             int pageCount = renderer.getPageCount();
             if (pageCount <= 0) throw new IOException("PDF has no pages");
+            reportProgress(listener, totalDocuments, completedDocuments, 0, pageCount, "Converting " + source.getName());
 
             List<File> stagedImages = new ArrayList<>();
             for (int index = 0; index < pageCount; index += 1) {
@@ -98,6 +110,7 @@ final class SectionDocumentConverter {
                     }
                     verifyImage(image);
                     stagedImages.add(image);
+                    reportProgress(listener, totalDocuments, completedDocuments, index + 1, pageCount, "Converting " + source.getName());
                 } finally {
                     if (bitmap != null) bitmap.recycle();
                     page.close();
@@ -112,6 +125,7 @@ final class SectionDocumentConverter {
                 moveOrThrow(stagedImages.get(index), targets.get(index));
                 publishedImages.add(targets.get(index));
                 verifyImage(targets.get(index));
+                reportProgress(listener, totalDocuments, completedDocuments, index + 1, pageCount, "Testing images " + source.getName());
             }
             if (!source.delete()) throw new IOException("Converted images were created but source could not be deleted");
             String[] mediaPaths = new String[targets.size()];
@@ -123,6 +137,7 @@ final class SectionDocumentConverter {
             Log.i(TAG, "Converted " + source.getAbsolutePath() + " into " + targets.size() + " JPG image(s)");
             return true;
         } catch (Exception error) {
+            if (listener != null) listener.onProgress(Math.max(0, Math.min(99, (completedDocuments * 100) / Math.max(1, totalDocuments))), "Conversion failed: " + source.getName());
             Log.e(TAG, "Document conversion failed; source retained: " + source.getAbsolutePath(), error);
             // Do not leave a partial image sequence that the existing player could start showing.
             // These are only files this transaction moved after the source was retained.
@@ -139,6 +154,27 @@ final class SectionDocumentConverter {
             if (renderer != null) renderer.close();
             if (descriptor != null) try { descriptor.close(); } catch (IOException ignored) { }
         }
+    }
+
+    private static void reportProgress(ProgressListener listener, int totalDocuments, int completedDocuments, int completedPages, int pageCount, String message) {
+        if (listener == null) return;
+        double fileProgress = Math.max(0d, Math.min(1d, (double) completedPages / Math.max(1, pageCount)));
+        int percent = (int) Math.floor(((completedDocuments + fileProgress) * 100d) / Math.max(1, totalDocuments));
+        listener.onProgress(Math.max(0, Math.min(99, percent)), message);
+    }
+
+    private static int countPdfDocuments(File directory) {
+        if (directory == null || !directory.isDirectory() || !directory.canRead()) return 0;
+        int count = 0;
+        File[] children = directory.listFiles();
+        if (children == null) return 0;
+        for (File child : children) {
+            if (child == null) continue;
+            if (child.isDirectory()) {
+                if (!child.getName().startsWith(".nvsign-convert-")) count += countPdfDocuments(child);
+            } else if (child.isFile() && "pdf".equals(extensionOf(child.getName()))) count += 1;
+        }
+        return count;
     }
 
     private static List<File> buildTargets(File parent, String base, int count) {

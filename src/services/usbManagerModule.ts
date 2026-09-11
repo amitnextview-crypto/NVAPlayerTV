@@ -62,3 +62,14 @@ export function subscribeUsbState(listener: (state: UsbState) => void) {
   return () => subscription.remove();
 }
 
+export type DocumentConversionProgress = { percent: number; message: string };
+
+export function subscribeDocumentConversionProgress(listener: (progress: DocumentConversionProgress) => void) {
+  if (!UsbManagerModule) return () => {};
+  const emitter = new NativeEventEmitter(UsbManagerModule);
+  const subscription = emitter.addListener("documentConversionProgress", (event: any) => {
+    listener({ percent: Math.max(0, Math.min(100, Number(event?.percent || 0))), message: String(event?.message || "Converting PDF...") });
+  });
+  return () => subscription.remove();
+}
+

@@ -1891,24 +1891,18 @@ export default function SlideRenderer({
   }
 
   if (!files.length) {
-    const offline = sourceType === SOURCE_TYPES.multimedia && !server;
-    const emptyTitle = offline ? "Offline Content" : "No Media Uploaded";
-    const emptySubtitle = offline
-      ? "No cached media for this section."
-      : "Upload files to start playback.";
-    const emptyHint = offline
-      ? "Connect to CMS to sync content."
-      : "Open CMS and upload media to this grid.";
     return (
       <View style={styles.emptyWrap}>
         <View style={styles.emptyCard}>
           <View style={styles.emptyBadge}>
             <Text style={styles.emptyBadgeText}>SECTION {sectionIndex + 1}</Text>
           </View>
-          <Text style={styles.emptyTitle}>{emptyTitle}</Text>
-          <Text style={styles.emptySubtitle}>{emptySubtitle}</Text>
+          <Text style={styles.emptyTitle}>Section {sectionIndex + 1} is Empty</Text>
           <View style={styles.emptyHintBox}>
-            <Text style={styles.emptyHintText}>{emptyHint}</Text>
+            <Text style={styles.emptyHintText}>
+              1. To play from a USB drive, add media to nvsign/section{sectionIndex + 1} and connect the drive to this TV.{"\n\n"}
+              2. To upload from a phone or computer, connect it to the same network as this TV. Press the Back button, open the QR Access page, and scan the QR code to open CMS.
+            </Text>
           </View>
         </View>
       </View>
@@ -2527,17 +2521,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 20,
-    backgroundColor: "#05080d",
+    backgroundColor: "#ffffff",
   },
   emptyCard: {
-    width: "86%",
-    maxWidth: 420,
-    borderRadius: 22,
+    width: "76%",
+    maxWidth: 360,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(130, 190, 230, 0.28)",
-    backgroundColor: "rgba(12, 18, 26, 0.92)",
-    paddingHorizontal: 22,
-    paddingVertical: 24,
+    borderColor: "#d5e0e8",
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     alignItems: "center",
   },
   emptyBadge: {
@@ -2547,41 +2541,34 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(62, 188, 255, 0.18)",
     borderWidth: 1,
     borderColor: "rgba(120, 220, 255, 0.5)",
-    marginBottom: 14,
+    marginBottom: 9,
   },
   emptyBadgeText: {
-    color: "#bfeaff",
-    fontSize: 11,
-    letterSpacing: 1.2,
+    color: "#1769aa",
+    fontSize: 9,
+    letterSpacing: 0.9,
     fontWeight: "700",
   },
   emptyTitle: {
-    color: "#ffffff",
-    fontSize: 22,
+    color: "#12202d",
+    fontSize: 17,
     fontWeight: "700",
     textAlign: "center",
   },
-  emptySubtitle: {
-    color: "rgba(203, 220, 235, 0.9)",
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center",
-    marginTop: 8,
-  },
   emptyHintBox: {
-    marginTop: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    backgroundColor: "rgba(6, 12, 18, 0.7)",
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    backgroundColor: "#f4f8fb",
     borderWidth: 1,
-    borderColor: "rgba(120, 180, 220, 0.22)",
+    borderColor: "#dbe7ef",
   },
   emptyHintText: {
-    color: "rgba(164, 210, 245, 0.9)",
-    fontSize: 13,
+    color: "#425466",
+    fontSize: 10,
     textAlign: "center",
-    lineHeight: 18,
+    lineHeight: 14,
   },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
 });

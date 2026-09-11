@@ -21,7 +21,6 @@ import AdminButton from "../admin/AdminButton";
 import AdminOnlyScreen from "../admin/AdminOnlyScreen";
 import AdminCmsPanel from "../admin/AdminCmsPanel";
 import UsbSettingsPanel from "../admin/UsbSettingsPanel";
-import CmsAccessCard from "../admin/CmsAccessCard";
 import PlayerScreen from "../player/PlayerScreen";
 import SetupScreen from "../setup/SetupScreen";
 import { loadConfig } from "../services/configService";
@@ -59,6 +58,7 @@ import {
 import {
   isUsbModuleAvailable,
   refreshUsbState,
+  subscribeDocumentConversionProgress,
   subscribeUsbState,
 } from "../services/usbManagerModule";
 import {
@@ -250,12 +250,18 @@ export default function App() {
     percent: 0,
     visible: false,
   });
+  const [documentConversionState, setDocumentConversionState] = useState({
+    visible: false,
+    percent: 0,
+    message: "Converting PDF...",
+  });
   const socketUrlRef = useRef("");
   const playbackBySectionRef = useRef<Record<number, any>>({});
   const lastMetaRef = useRef<any | null>(null);
   const lastConfigSyncAtRef = useRef("");
   const lastMediaSyncAtRef = useRef("");
   const pendingApkUpdateSuccessRef = useRef<any | null>(null);
+  const documentConversionHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!config?.schedule?.enabled) return;
     // Re-evaluate exactly after each minute boundary, not just after a polling
@@ -451,6 +457,20 @@ export default function App() {
     if (!isUsbModuleAvailable()) return;
 
     let mounted = true;
+    const unsubscribeConversion = subscribeDocumentConversionProgress((progress) => {
+      if (documentConversionHideTimerRef.current) {
+        clearTimeout(documentConversionHideTimerRef.current);
+        documentConversionHideTimerRef.current = null;
+      }
+      const percent = Math.max(0, Math.min(100, Math.round(progress.percent)));
+      setDocumentConversionState({ visible: true, percent, message: progress.message });
+      if (percent >= 100) {
+        documentConversionHideTimerRef.current = setTimeout(() => {
+          setDocumentConversionState((current) => ({ ...current, visible: false }));
+          documentConversionHideTimerRef.current = null;
+        }, 900);
+      }
+    });
     const applyUsbState = async (incomingState?: any) => {
       try {
         const permissionGranted = await ensureUsbMediaReadPermissions();
@@ -487,6 +507,8 @@ export default function App() {
     return () => {
       mounted = false;
       unsubscribeUsb();
+      unsubscribeConversion();
+      if (documentConversionHideTimerRef.current) clearTimeout(documentConversionHideTimerRef.current);
       appStateSub.remove();
     };
   }, []);
@@ -2367,7 +2389,9 @@ export default function App() {
           </Pressable>
 
           <Text style={styles.licenseStatus}>{licenseStatus}</Text>
-          <CmsAccessCard />
+          <Text style={styles.licenseSupport}>
+            Support: +919227896944{"\n"}nextviewsignage@gmail.com
+          </Text>
         </View>
       </View>
     );
@@ -2702,6 +2726,19 @@ export default function App() {
           </View>
         </View>
       ) : null}
+      {documentConversionState.visible ? (
+        <View style={styles.documentConversionOverlay} pointerEvents="none">
+          <View style={styles.documentConversionCard}>
+            <Text style={styles.documentConversionTitle}>Preparing PDF</Text>
+            <Text style={styles.documentConversionMessage}>{documentConversionState.message}</Text>
+            <View style={styles.documentConversionBar}>
+              <View style={[styles.documentConversionBarFill, { width: `${documentConversionState.percent}%` }]} />
+            </View>
+            <Text style={styles.documentConversionPercent}>{`${documentConversionState.percent}%`}</Text>
+          </View>
+
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -2709,7 +2746,7 @@ export default function App() {
 const styles = StyleSheet.create({
   connectRoot: {
     flex: 1,
-    backgroundColor: "#05080d",
+    backgroundColor: "#ffffff",
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
@@ -2738,8 +2775,8 @@ const styles = StyleSheet.create({
     minHeight: 340,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(16, 20, 27, 0.9)",
+    borderColor: "#d5e0e8",
+    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 26,
@@ -2760,7 +2797,7 @@ const styles = StyleSheet.create({
     width: 62,
     height: 62,
     borderRadius: 31,
-    backgroundColor: "rgba(255, 255, 255, 0.07)",
+    backgroundColor: "#ffffff",
   },
   pulseDot: {
     width: 12,
@@ -2771,14 +2808,14 @@ const styles = StyleSheet.create({
   },
   connectTitle: {
     marginTop: 22,
-    color: "#ffffff",
+    color: "#12202d",
     fontSize: 24,
     fontWeight: "700",
     letterSpacing: 0.4,
   },
   connectSubtitle: {
     marginTop: 10,
-    color: "rgba(216, 225, 236, 0.82)",
+    color: "#526674",
     fontSize: 15,
     textAlign: "center",
     lineHeight: 22,
@@ -2803,7 +2840,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   statusText: {
-    color: "#c8fff1",
+    color: "#245c4d",
     fontSize: 13,
     fontWeight: "600",
   },
@@ -2812,15 +2849,15 @@ const styles = StyleSheet.create({
     maxWidth: 620,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(16, 20, 27, 0.93)",
+    borderColor: "#d5e0e8",
+    backgroundColor: "#ffffff",
     paddingHorizontal: 24,
     paddingVertical: 24,
   },
   licenseHint: {
     marginTop: 8,
     marginBottom: 14,
-    color: "rgba(216, 225, 236, 0.8)",
+    color: "#526674",
     fontSize: 14,
     lineHeight: 20,
   },
@@ -2828,33 +2865,33 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   licenseLabel: {
-    color: "#dff2ff",
+    color: "#365b73",
     fontSize: 13,
     fontWeight: "700",
     marginBottom: 6,
   },
   licenseValue: {
-    color: "#9de6d5",
+    color: "#12202d",
     fontSize: 14,
-    backgroundColor: "rgba(22,30,40,0.75)",
+    backgroundColor: "#f4f8fb",
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
   licenseInput: {
-    color: "#f2fbff",
+    color: "#12202d",
     fontSize: 15,
     borderWidth: 1,
-    borderColor: "rgba(124, 190, 231, 0.45)",
+    borderColor: "#b8c9d6",
     borderRadius: 10,
-    backgroundColor: "rgba(14, 19, 27, 0.86)",
+    backgroundColor: "#f7fafc",
     paddingHorizontal: 12,
     paddingVertical: 10,
     letterSpacing: 0.4,
   },
   licenseInputFocused: {
     borderColor: "#8fe8ff",
-    backgroundColor: "rgba(20, 34, 46, 0.96)",
+    backgroundColor: "#ffffff",
     shadowColor: "#6ce8ff",
     shadowOpacity: 0.35,
     shadowRadius: 12,
@@ -2884,9 +2921,17 @@ const styles = StyleSheet.create({
   },
   licenseStatus: {
     marginTop: 12,
-    color: "rgba(206, 229, 245, 0.86)",
+    color: "#526674",
     fontSize: 13,
     lineHeight: 18,
+  },
+  licenseSupport: {
+    marginTop: 18,
+    color: "#365b73",
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+    fontWeight: "600",
   },
   errorToast: {
     position: "absolute",
@@ -3036,4 +3081,19 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 19,
   },
+  documentConversionOverlay: {
+    position: "absolute", left: 0, right: 0, top: 0, bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.74)", alignItems: "center", justifyContent: "center", paddingHorizontal: 20,
+  },
+  documentConversionCard: {
+    width: "82%", maxWidth: 560, borderRadius: 18, borderWidth: 1,
+    borderColor: "rgba(127, 255, 212, 0.35)", backgroundColor: "rgba(10, 16, 24, 0.97)", paddingHorizontal: 22, paddingVertical: 20,
+  },
+  documentConversionTitle: { color: "#ffffff", fontSize: 24, fontWeight: "700", textAlign: "center" },
+  documentConversionMessage: { marginTop: 10, color: "#d8e8f5", fontSize: 15, textAlign: "center", lineHeight: 22 },
+  documentConversionBar: {
+    marginTop: 16, height: 14, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden", borderWidth: 1, borderColor: "rgba(127, 255, 212, 0.3)",
+  },
+  documentConversionBarFill: { height: "100%", borderRadius: 999, backgroundColor: "#44d38e" },
+  documentConversionPercent: { marginTop: 12, color: "#cffff0", fontSize: 18, fontWeight: "700", textAlign: "center" },
 });

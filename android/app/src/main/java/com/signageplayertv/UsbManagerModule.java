@@ -205,10 +205,7 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
 
             // Render pending documents before collecting playable files so the next state already
             // contains the generated JPG pages and React can refresh without an APK restart.
-            SectionDocumentConverter.convertPendingDocuments(
-                    reactContext,
-                    resolveNamedDirectory(mountRoot, NVSIGN_DIR_NAME)
-            );
+            convertPendingDocuments(resolveNamedDirectory(mountRoot, NVSIGN_DIR_NAME));
 
             List<UsbMediaItem> sectionedFiles = collectNvsignSectionFiles(mountRoot);
             if (!sectionedFiles.isEmpty()) {
@@ -257,10 +254,7 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
             );
             for (File internalRoot : internalRoots) {
                 if (internalRoot == null || !internalRoot.exists()) continue;
-                SectionDocumentConverter.convertPendingDocuments(
-                        reactContext,
-                        resolveNamedDirectory(internalRoot, NVSIGN_DIR_NAME)
-                );
+                convertPendingDocuments(resolveNamedDirectory(internalRoot, NVSIGN_DIR_NAME));
                 List<UsbMediaItem> storageFiles = collectSectionedFiles(internalRoot, NVSIGN_DIR_NAME);
                 Log.d(TAG, "main nvsign direct scan root=" + internalRoot.getAbsolutePath() + " count=" + storageFiles.size());
                 if (storageFiles.isEmpty()) continue;
@@ -278,6 +272,15 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
         }
 
         return UsbState.noPlayableMedia(checkedMounts, mounted);
+    }
+
+    private void convertPendingDocuments(File nvsignRoot) {
+        SectionDocumentConverter.convertPendingDocuments(reactContext, nvsignRoot, (percent, message) -> {
+            WritableMap payload = Arguments.createMap();
+            payload.putInt("percent", Math.max(0, Math.min(100, percent)));
+            payload.putString("message", String.valueOf(message == null ? "Converting PDF..." : message));
+            emit("documentConversionProgress", payload);
+        });
     }
 
     private List<UsbMediaItem> queryMediaStorePlaylist(File mountRoot) {

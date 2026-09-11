@@ -284,6 +284,9 @@ export default function AdminCmsPanel({
             persistentScrollbar
             keyboardShouldPersistTaps="handled"
           >
+            <Text style={styles.accessMessage}>
+              Connect this TV and your phone or computer to the same network. Scan the QR code to open the CMS panel, where you can upload media and manage display settings.
+            </Text>
             <CmsAccessCard
               compact
               preferredFocusTarget="saveName"
@@ -303,13 +306,15 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: "100%",
-    backgroundColor: "#0f141c",
+    backgroundColor: "#ffffff",
     zIndex: 999,
     elevation: 999,
   },
   header: {
     minHeight: 68,
-    backgroundColor: "#17202c",
+    backgroundColor: "#ffffff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#dbe4ec",
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
@@ -327,7 +332,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    color: "#fff",
+    color: "#12202d",
     fontSize: 18,
     fontWeight: "700",
   },
@@ -336,7 +341,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     marginTop: 2,
-    color: "rgba(212,225,238,0.7)",
+    color: "#637381",
     fontSize: 11,
   },
   subtitleCompact: {
@@ -351,6 +356,14 @@ const styles = StyleSheet.create({
   accessScrollContent: {
     flexGrow: 1,
     paddingBottom: 28,
+  },
+  accessMessage: {
+    color: "#425466",
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    maxWidth: 700,
+    alignSelf: "center",
   },
   contentCompact: {
     padding: 8,
