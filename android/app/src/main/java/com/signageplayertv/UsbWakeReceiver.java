@@ -15,12 +15,6 @@ public class UsbWakeReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         String action = intent != null ? String.valueOf(intent.getAction()) : "";
         Log.d("UsbWakeReceiver", "USB storage event: " + action);
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_AUTO_REOPEN_ENABLED, true)
-                .putBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, false)
-                .apply();
-
         try {
             Intent serviceIntent = new Intent(context, KioskKeepAliveService.class);
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {

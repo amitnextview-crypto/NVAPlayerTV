@@ -529,17 +529,16 @@ export default function App() {
         const permissionGranted = await ensureUsbMediaReadPermissions();
         console.log("[USB_PERM]", permissionGranted ? "granted" : "denied-scan-anyway");
         const state = incomingState || (await refreshUsbState());
-        const scanReason = String(state?.reason || "").toLowerCase();
-        const isUsbAttachOrRemovalEvent = /media_(mounted|removed|unmounted|eject|bad_removal)/.test(scanReason);
-        // Do not overwrite the user's saved USB/Storage choice during init, watcher or manual
-        // scans. Only a real USB attach/removal event changes CMS Only automatically.
-        if (isUsbAttachOrRemovalEvent) {
-          const nextCmsOnlyPlayback = !state?.usbMounted;
-          if (cmsOnlyPlaybackRef.current !== nextCmsOnlyPlayback) {
-            cmsOnlyPlaybackRef.current = nextCmsOnlyPlayback;
-            setCmsOnlyPlayback(nextCmsOnlyPlayback);
-            void AsyncStorage.setItem(CMS_ONLY_PLAYBACK_KEY, String(nextCmsOnlyPlayback));
-          }
+        // Use the physical USB state, not the OEM-specific broadcast action.
+        // Some Google/Smart TVs report a different action name (or only a
+        // periodic scan), while usbMounted remains reliable on every scan.
+        // A plugged drive enables USB playback; removal immediately restores
+        // CMS-only playback, regardless of whether the drive has media yet.
+        const nextCmsOnlyPlayback = !state?.usbMounted;
+        if (cmsOnlyPlaybackRef.current !== nextCmsOnlyPlayback) {
+          cmsOnlyPlaybackRef.current = nextCmsOnlyPlayback;
+          setCmsOnlyPlayback(nextCmsOnlyPlayback);
+          void AsyncStorage.setItem(CMS_ONLY_PLAYBACK_KEY, String(nextCmsOnlyPlayback));
         }
         const playbackState = await getUsbStateForPlayback(state);
         console.log("[USB_REFRESH]", JSON.stringify(playbackState));

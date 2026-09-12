@@ -83,6 +83,8 @@ final class SectionDocumentConverter {
         String base = baseName(source.getName());
         File staging = new File(parent, ".nvsign-convert-" + base + "-" + System.nanoTime());
         List<File> publishedImages = new ArrayList<>();
+        List<File> targets = new ArrayList<>();
+        List<File> previousImages = new ArrayList<>();
         ParcelFileDescriptor descriptor = null;
         PdfRenderer renderer = null;
         try {
@@ -117,9 +119,21 @@ final class SectionDocumentConverter {
                 }
             }
 
-            List<File> targets = buildTargets(parent, base, stagedImages.size());
-            for (File target : targets) {
-                if (target.exists()) throw new IOException("Refusing to overwrite existing image: " + target.getName());
+            targets = buildTargets(parent, base, stagedImages.size());
+            // A PDF may have been converted before but its source retained
+            // after an interrupted USB write. Keep the previous JPGs as a
+            // rollback until every fresh page is rendered and published.
+            for (int index = 0; index < targets.size(); index += 1) {
+                File target = targets.get(index);
+                File previous = new File(staging, ".previous-" + index + ".jpg");
+                if (target.exists()) {
+                    if (!target.renameTo(previous)) {
+                        throw new IOException("Unable to replace existing image: " + target.getName());
+                    }
+                    previousImages.add(previous);
+                } else {
+                    previousImages.add(null);
+                }
             }
             for (int index = 0; index < stagedImages.size(); index += 1) {
                 moveOrThrow(stagedImages.get(index), targets.get(index));
@@ -145,6 +159,17 @@ final class SectionDocumentConverter {
                 for (File image : publishedImages) {
                     if (image.exists() && !image.delete()) {
                         Log.w(TAG, "Unable to remove incomplete conversion image: " + image.getAbsolutePath());
+                    }
+                }
+                for (int index = 0; index < previousImages.size(); index += 1) {
+                    File previous = previousImages.get(index);
+                    if (previous == null || !previous.exists()) continue;
+                    File target = targets.get(index);
+                    if (target.exists() && !target.delete()) {
+                        Log.w(TAG, "Unable to remove incomplete conversion image: " + target.getAbsolutePath());
+                    }
+                    if (!previous.renameTo(target)) {
+                        Log.w(TAG, "Unable to restore previous conversion image: " + target.getAbsolutePath());
                     }
                 }
             }
