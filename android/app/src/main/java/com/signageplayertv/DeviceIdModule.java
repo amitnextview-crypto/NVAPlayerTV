@@ -61,6 +61,7 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
     private static final String PREFS_NAME = "kiosk_prefs";
     private static final String KEY_AUTO_REOPEN_ENABLED = "auto_reopen_enabled";
     private static final String KEY_AUTO_REOPEN_MANUAL_OFF = "auto_reopen_manual_off";
+    private static final String KEY_LICENSE_ACTIVATED = "license_activated";
     private static final String KEY_VIDEO_CACHE_MAX_BYTES = "video_cache_max_bytes";
     private static final String KEY_APP_MODE = "app_mode";
     private static final int MAIN_REOPEN_REQ_CODE = 7201;
@@ -579,6 +580,7 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
                 boolean preservedManualOff = kioskPrefs.getBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, false);
                 long preservedVideoCacheMaxBytes = kioskPrefs.getLong(KEY_VIDEO_CACHE_MAX_BYTES, 0L);
                 String preservedAppMode = kioskPrefs.getString(KEY_APP_MODE, "");
+                boolean preservedLicenseActivated = kioskPrefs.getBoolean(KEY_LICENSE_ACTIVATED, false);
                 kioskPrefs
                         .edit()
                         .clear()
@@ -586,6 +588,7 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
                         .putBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, preservedManualOff)
                         .putLong(KEY_VIDEO_CACHE_MAX_BYTES, preservedVideoCacheMaxBytes)
                         .putString(KEY_APP_MODE, preservedAppMode)
+                        .putBoolean(KEY_LICENSE_ACTIVATED, preservedLicenseActivated)
                         .apply();
             } catch (Exception ignored) {
             }
@@ -617,6 +620,22 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
             promise.resolve(true);
         } catch (Exception e) {
             promise.reject("clear_embedded_cms_failed", String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** Auto-reopen is enabled only after a valid license has been activated. */
+    @ReactMethod
+    public void setLicenseActivated(boolean activated) {
+        Context context = reactContext.getApplicationContext();
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_LICENSE_ACTIVATED, activated)
+                .putBoolean(KEY_AUTO_REOPEN_ENABLED, activated)
+                .putBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, !activated)
+                .commit();
+        if (!activated) {
+            cancelReopenAlarm(context, MAIN_REOPEN_REQ_CODE);
+            cancelReopenAlarm(context, SERVICE_REOPEN_REQ_CODE);
         }
     }
 

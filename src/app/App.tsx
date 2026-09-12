@@ -28,6 +28,7 @@ import { writeConfig } from "../utils/fileSystem";
 import { resolveScheduledConfig } from "../services/scheduleService";
 import {
   clearEmbeddedCmsState,
+  setLicenseActivated,
   setEmbeddedRuntimeInfo,
   startEmbeddedCmsServer,
 } from "../services/embeddedCmsService";
@@ -244,6 +245,7 @@ export default function App() {
   const [licenseBusy, setLicenseBusy] = useState(false);
   const [licenseInputFocused, setLicenseInputFocused] = useState(false);
   const [licenseButtonFocused, setLicenseButtonFocused] = useState(false);
+  const licenseInputRef = useRef<TextInput>(null);
   const [lastError, setLastError] = useState<RuntimeErrorInfo | null>(null);
   const [sourceSnapshot, setSourceSnapshot] = useState<SourceSnapshot>(INITIAL_SOURCE_SNAPSHOT);
   const [offlineNotice, setOfflineNotice] = useState("");
@@ -457,7 +459,10 @@ export default function App() {
       if (keyAction !== -1 && keyAction !== 1) return;
       // USB settings must remain reachable while CMS Only is enabled, even when no
       // USB/storage media is currently active. Otherwise the user cannot turn it off.
-      if (eventType === "down" && !showAdmin && !showUsbSettings) {
+      // Do not open USB/Storage settings while the activation screen is being
+      // completed. Some TV remotes emit a directional event immediately after
+      // OK/Center, which previously opened this panel just after activation.
+      if (licensed && eventType === "down" && !showAdmin && !showUsbSettings) {
         setShowUsbSettings(true);
         return;
       }
@@ -467,7 +472,7 @@ export default function App() {
     return () => {
       sub.remove();
     };
-  }, [handleTvBackAction, showAdmin, showUsbSettings]);
+  }, [handleTvBackAction, licensed, showAdmin, showUsbSettings]);
 
   useEffect(() => {
     offlineNoticeRef.current = offlineNotice;
@@ -757,6 +762,25 @@ export default function App() {
     } catch {
       // ignore native embedded CMS cleanup errors
     }
+  }
+
+  /**
+   * Clears only content derived from CMS uploads. This deliberately does not
+   * touch config.json, AsyncStorage, USB media/cache, or Android permissions.
+   * It is used by the CMS Clear Uploaded Media command, so clearing content is
+   * instant and does not require an app restart.
+   */
+  async function clearRuntimeUploadedMedia() {
+    playbackControllerRef.current.stopInstantStream();
+    await resetMediaRuntimeState({ clearListCache: true });
+    resetRuntimePlaybackSnapshots();
+    setSectionPlaybackTimeline({});
+    setUploadProcessingBySection({});
+    setUploadCountsBySection({});
+    setPlaylistSyncAt(0);
+    setContentResetVersion((prev) => prev + 1);
+    setSectionMediaVersion({ 1: 0, 2: 0, 3: 0 });
+    await clearRuntimeCacheOnly();
   }
 
   function bumpSectionMediaVersion(section?: number) {
@@ -1182,6 +1206,13 @@ export default function App() {
             }
             return;
           }
+          if (action === "clear-uploaded-media") {
+            await clearRuntimeUploadedMedia();
+            sourceManagerRef.current.onCmsUpdate();
+            await refreshPlayerMediaImmediately();
+            void finalizePlayerMediaRefresh();
+            return;
+          }
           if (nativeDeviceModule?.executeDeviceCommand) {
             await nativeDeviceModule.executeDeviceCommand(
               action,
@@ -1273,6 +1304,7 @@ export default function App() {
 
         if (!mounted) return;
         setLicensed(!!active);
+        setLicenseActivated(!!active);
         setLicenseStatus(
           active
             ? "Device activated. Starting player..."
@@ -1345,10 +1377,23 @@ export default function App() {
     setLicenseStatus(result.message);
     if (result.success) {
       setLicenseInput(String(licenseInput || "").trim().toUpperCase());
+      setLicenseActivated(true);
       setLicensed(true);
       setReady(false);
     }
   };
+
+  // On TV devices, focus the key field as soon as the activation view becomes
+  // available. This makes typing possible without an extra navigation step.
+  useEffect(() => {
+    if (!licenseReady || licensed) return;
+    // Google TV sometimes ignores the first focus request while RN is mounting.
+    // Retry briefly so Android TV and Google TV both land on the key field.
+    const timers = [120, 400, 900].map((delay) =>
+      setTimeout(() => licenseInputRef.current?.focus(), delay)
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [licenseReady, licensed]);
 
   useEffect(() => {
     if (!bootReady || !licenseReady || !licensed) return;
@@ -1846,6 +1891,21 @@ export default function App() {
       }
     };
 
+    const onClearUploadedMedia = async () => {
+      try {
+        await clearRuntimeUploadedMedia();
+        sourceManagerRef.current.onCmsUpdate();
+        await refreshPlayerMediaImmediately();
+        await finalizePlayerMediaRefresh();
+        await emitDeviceHealthSnapshot("uploaded-media-cleared", {
+          preservedConfiguration: true,
+          preservedPermissions: true,
+        }, { forceStorageScan: true });
+      } catch (e) {
+        emitDeviceError("clear-uploaded-media", `Clear uploaded media failed: ${String((e as any)?.message || e)}`);
+      }
+    };
+
     const onRenameDevice = async (payload: any) => {
       try {
         const nextName = String(payload?.deviceName || "").trim();
@@ -1873,6 +1933,10 @@ export default function App() {
         }
         if (action === "deep-clear-data") {
           await onDeepClearData();
+          return;
+        }
+        if (action === "clear-uploaded-media") {
+          await onClearUploadedMedia();
           return;
         }
         const nativeDeviceModule = (NativeModules as any)?.DeviceIdModule;
@@ -2434,12 +2498,14 @@ export default function App() {
           <View style={styles.licenseRow}>
             <Text style={styles.licenseLabel}>License Key</Text>
             <TextInput
+              ref={licenseInputRef}
               value={licenseInput}
               onChangeText={setLicenseInput}
               onFocus={() => setLicenseInputFocused(true)}
               onBlur={() => setLicenseInputFocused(false)}
               autoCapitalize="characters"
               autoCorrect={false}
+              autoFocus
               placeholder="Enter key"
               placeholderTextColor="rgba(210,220,232,0.45)"
               style={[

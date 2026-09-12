@@ -26,6 +26,7 @@ class KioskKeepAliveService : Service() {
     private const val PREFS_NAME = "kiosk_prefs"
     private const val KEY_AUTO_REOPEN_ENABLED = "auto_reopen_enabled"
     private const val KEY_AUTO_REOPEN_MANUAL_OFF = "auto_reopen_manual_off"
+    private const val KEY_LICENSE_ACTIVATED = "license_activated"
   }
 
   private val handler = Handler(Looper.getMainLooper())
@@ -167,7 +168,8 @@ class KioskKeepAliveService : Service() {
 
   private fun isAutoReopenEnabled(): Boolean {
     val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    if (prefs.getBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, false)) return false
-    return prefs.getBoolean(KEY_AUTO_REOPEN_ENABLED, true)
+    if (!prefs.getBoolean(KEY_LICENSE_ACTIVATED, false)) return false
+    if (prefs.getBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, true)) return false
+    return prefs.getBoolean(KEY_AUTO_REOPEN_ENABLED, false)
   }
 }

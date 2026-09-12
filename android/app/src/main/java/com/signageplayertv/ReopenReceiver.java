@@ -11,13 +11,15 @@ public class ReopenReceiver extends BroadcastReceiver {
     private static final String PREFS_NAME = "kiosk_prefs";
     private static final String KEY_AUTO_REOPEN_ENABLED = "auto_reopen_enabled";
     private static final String KEY_AUTO_REOPEN_MANUAL_OFF = "auto_reopen_manual_off";
+    private static final String KEY_LICENSE_ACTIVATED = "license_activated";
 
     @Override
     public void onReceive(Context context, Intent intent) {
         try {
             SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            boolean enabled = !prefs.getBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, false)
-                    && prefs.getBoolean(KEY_AUTO_REOPEN_ENABLED, true);
+            boolean enabled = prefs.getBoolean(KEY_LICENSE_ACTIVATED, false)
+                    && !prefs.getBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, true)
+                    && prefs.getBoolean(KEY_AUTO_REOPEN_ENABLED, false);
             if (!enabled) {
                 Log.d("ReopenReceiver", "Auto reopen disabled. Skipping relaunch.");
                 return;

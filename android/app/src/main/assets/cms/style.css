@@ -4386,6 +4386,33 @@ body.tv-compact-mode.tv-screen-portrait .right-col {
 @media (max-width: 720px),
 (max-width: 900px) and (orientation: portrait) {
 
+  /* Modal panels must fit inside a phone viewport. Their own scroll area
+     keeps the heading and Close action reachable at all times. */
+  .dashboard-overlay {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: max(14px, env(safe-area-inset-top)) 10px 14px;
+    overflow: hidden;
+  }
+
+  .dashboard-panel,
+  .enterprise-modal-panel {
+    width: 100%;
+    max-height: calc(100dvh - max(28px, env(safe-area-inset-top)));
+    margin: 0;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dashboard-header {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    padding: 2px 0 10px;
+    background: linear-gradient(180deg, rgba(11, 21, 31, 1), rgba(11, 21, 31, 0.94));
+  }
+
   html,
   body {
     height: auto;

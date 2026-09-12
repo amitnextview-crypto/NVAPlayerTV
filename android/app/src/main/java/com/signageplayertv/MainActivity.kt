@@ -25,6 +25,7 @@ class MainActivity : ReactActivity() {
     private const val PREFS_NAME = "kiosk_prefs"
     private const val KEY_AUTO_REOPEN_ENABLED = "auto_reopen_enabled"
     private const val KEY_AUTO_REOPEN_MANUAL_OFF = "auto_reopen_manual_off"
+    private const val KEY_LICENSE_ACTIVATED = "license_activated"
     private const val EXTRA_SKIP_AUTO_REOPEN_RESTORE_ONCE = "skip_auto_reopen_restore_once"
   }
 
@@ -221,13 +222,20 @@ override fun onWindowFocusChanged(hasFocus: Boolean) {
       if (skipAutoReopenRestoreThisLaunch) {
         return
       }
-      setAutoReopenEnabled(true)
+      if (getPrefs().getBoolean(KEY_LICENSE_ACTIVATED, false)) {
+        setAutoReopenEnabled(true)
+      } else {
+        setAutoReopenEnabled(false)
+      }
     } catch (_: Exception) {
     }
   }
 
   private fun isAutoReopenEnabled(): Boolean {
-    return getPrefs().getBoolean(KEY_AUTO_REOPEN_ENABLED, true)
+    val prefs = getPrefs()
+    return prefs.getBoolean(KEY_LICENSE_ACTIVATED, false) &&
+      prefs.getBoolean(KEY_AUTO_REOPEN_ENABLED, false) &&
+      !prefs.getBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, true)
   }
 
   private fun setAutoReopenEnabled(enabled: Boolean) {

@@ -352,13 +352,16 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
     }
 
     private Response handleClearDevice() throws Exception {
+        // The CMS "Clear Uploaded Media" action must not behave like Android's
+        // app-data reset. Keep the saved player configuration, setup state and
+        // system-granted permissions intact; only remove CMS-uploaded content.
+        deleteRecursively(new File(context.getFilesDir(), MEDIA_ROOT_DIR));
         JSONObject command = new JSONObject();
-        command.put("action", "deep-clear-data");
-        command.put("preservedIdentity", true);
+        command.put("action", "clear-uploaded-media");
         EmbeddedCmsRuntime.emitEvent("device-command", command);
         JSONObject out = new JSONObject();
         out.put("success", true);
-        out.put("message", "Deep clear command sent. Preserved identity keys will remain.");
+        out.put("message", "Uploaded CMS media cleared. Saved settings and permissions were kept.");
         return json(out);
     }
 

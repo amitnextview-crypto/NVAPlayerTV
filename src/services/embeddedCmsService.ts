@@ -74,6 +74,13 @@ export async function clearEmbeddedCmsState() {
   return DeviceIdModule.clearEmbeddedCmsState();
 }
 
+export function setLicenseActivated(activated: boolean) {
+  try {
+    DeviceIdModule?.setLicenseActivated?.(Boolean(activated));
+  } catch {
+  }
+}
+
 export async function pickMediaFilesForSection(section: number) {
   if (!DeviceIdModule?.pickMediaFilesForSection) {
     throw new Error("TV media picker is not available.");

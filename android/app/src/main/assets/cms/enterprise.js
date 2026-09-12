@@ -215,12 +215,14 @@
     el.textContent = safeMessage;
   }
 
-  function openManageModal(section = "") {
+  function openManageModal() {
     setManageFeedback("", "");
-    byId("enterpriseModal")?.classList.remove("hidden");
-    if (section === "groups") {
-      byId("enterpriseGroupsSection")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
+    const modal = byId("enterpriseModal");
+    modal?.classList.remove("hidden");
+    // Keep the title and Close button visible on mobile. scrollIntoView on the
+    // Groups section could move the modal header above the viewport.
+    const panel = modal?.querySelector(".enterprise-modal-panel");
+    panel?.scrollTo({ top: 0, behavior: "auto" });
   }
 
   function closeManageModal() {

@@ -5328,25 +5328,25 @@ async function clearDeviceData() {
   const deviceId = getSelectedDeviceValue();
   const confirmMsg =
     deviceId === "all"
-      ? "Are you sure? This will clear app data on ALL connected devices."
-      : "Are you sure? This will clear app data.";
+      ? "Are you sure? This will delete uploaded CMS media on ALL connected devices. Saved settings and permissions will remain unchanged."
+      : "Are you sure? This will delete uploaded CMS media. Saved settings and permissions will remain unchanged.";
 
-  if (!(await showConfirmDialog("Clear Device Data", confirmMsg, "Yes, Clear", "Cancel"))) return;
+  if (!(await showConfirmDialog("Clear Uploaded Media", confirmMsg, "Yes, Clear", "Cancel"))) return;
 
   const { onlineTargets } = getOnlineTargetDevices();
   const total = Math.max(1, onlineTargets.length);
   setLoaderVisibility(true);
-  updateUploadProgress(10, `Sending clear data command to ${total} device${total === 1 ? "" : "s"}...`);
+  updateUploadProgress(10, `Sending media clear command to ${total} device${total === 1 ? "" : "s"}...`);
 
   try {
     const results = await postToSelectedDevices("/config/clear-device");
     const okCount = results.filter((item) => item?.success !== false).length;
     updateUploadProgress(
       100,
-      `Clear data command sent to ${okCount} of ${total} device${total === 1 ? "" : "s"}.`
+      `Media clear command sent to ${okCount} of ${total} device${total === 1 ? "" : "s"}.`
     );
     if (okCount === total) {
-      showNotice("success", "Command Sent", "Clear data command has been sent.");
+      showNotice("success", "Command Sent", "Uploaded media clear command has been sent. Saved settings will remain unchanged.");
     } else if (okCount > 0) {
       showNotice("warning", "Partially Sent", `Command sent to ${okCount} of ${total} devices.`, 5000);
     } else {

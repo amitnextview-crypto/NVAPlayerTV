@@ -45,12 +45,6 @@ public class BootReceiver extends BroadcastReceiver {
             || ACTION_REBOOT.equals(action)) {
 
             Log.d("BOOT", "Boot/package restart trigger received");
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean(KEY_AUTO_REOPEN_ENABLED, true)
-                    .putBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, false)
-                    .apply();
-
             Intent serviceIntent = new Intent(context, KioskKeepAliveService.class);
             try {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
