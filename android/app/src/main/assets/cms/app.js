@@ -90,6 +90,8 @@ let previewSectionState = {
 };
 let previewPollTimer = null;
 let alertsPollTimer = null;
+let previewPollInFlight = false;
+let deviceAlertsInFlight = false;
 let selectedGridRatio = "1:1:1";
 let latestDeviceStatusList = [];
 let isDeviceDashboardOpen = false;
@@ -3341,8 +3343,16 @@ function startPreviewPolling() {
   }
 
   previewPollTimer = setInterval(async () => {
-    await loadPreviewMedia(getPrimaryOrigin());
-    renderScreenPreview();
+    // Slow TV servers can take longer than the polling interval. Avoid stacking
+    // identical requests while the previous poll is still active.
+    if (previewPollInFlight) return;
+    previewPollInFlight = true;
+    try {
+      await loadPreviewMedia(getPrimaryOrigin());
+      renderScreenPreview();
+    } finally {
+      previewPollInFlight = false;
+    }
   }, 15000);
 }
 
@@ -3438,6 +3448,9 @@ function renderHealthSummary(statusList) {
         `Storage: ${formatMetaStorage(item.meta?.freeBytes || 0, item.meta?.totalBytes || 0)}`,
         `App Data: media ${formatBytes(item.meta?.mediaBytes || 0)}, config ${formatBytes(item.meta?.configBytes || 0)}, cache ${formatBytes(item.meta?.cacheBytes || 0)}`,
         `CMS: ${item.meta?.server || "-"}`,
+        `Playback Source: ${item.meta?.playbackSource || "-"}`,
+        `CMS Only: ${item.meta?.cmsOnlyMode ? "On" : "Off"}`,
+        `USB/Storage: ${item.meta?.usb?.mounted ? "Mounted" : "Not mounted"}${item.meta?.usb?.hasPlayableMedia ? `, ${Number(item.meta.usb.playlistCount || 0)} file(s)` : ""}`,
         `Last App State: ${item.appState || "-"}`,
         `Last Config Sync: ${formatStatusTime(item.meta?.lastConfigSyncAt)}`,
         `Last Media Sync: ${formatStatusTime(item.meta?.lastMediaSyncAt)}`,
@@ -3532,6 +3545,8 @@ function renderDeviceDashboardList(statusList) {
         `Media: ${formatBytes(item.meta?.mediaBytes || 0)}`,
         `Cache: ${formatBytes(item.meta?.cacheBytes || 0)}`,
         `State: ${item.appState || "-"}`,
+        `Source: ${item.meta?.playbackSource || "-"} (CMS Only ${item.meta?.cmsOnlyMode ? "On" : "Off"})`,
+        `USB/Storage: ${item.meta?.usb?.mounted ? "Mounted" : "Not mounted"}${item.meta?.usb?.hasPlayableMedia ? `, ${Number(item.meta.usb.playlistCount || 0)} file(s)` : ""}`,
         `Config Sync: ${formatStatusTime(item.meta?.lastConfigSyncAt)}`,
         `Media Sync: ${formatStatusTime(item.meta?.lastMediaSyncAt)}`,
       ];
@@ -3737,6 +3752,8 @@ function buildLatestDeviceStatusList(fetchedDevices = []) {
 }
 
 async function loadDeviceAlerts(options = {}) {
+  if (deviceAlertsInFlight) return;
+  deviceAlertsInFlight = true;
   try {
     if (options?.forceScan) {
       await scanSubnetForDevices(true);
@@ -3767,6 +3784,8 @@ async function loadDeviceAlerts(options = {}) {
     window.__latestDeviceStatusList = latestDeviceStatusList;
     renderHealthSummary(latestDeviceStatusList);
     renderScreenPreview();
+  } finally {
+    deviceAlertsInFlight = false;
   }
 }
 

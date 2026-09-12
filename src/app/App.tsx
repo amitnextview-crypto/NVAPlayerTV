@@ -98,7 +98,10 @@ const CACHE_MIN_FREE_BYTES = 1024 * 1024 * 1024;
 const SMALL_CACHE_BLOCK_BYTES = 30 * 1024 * 1024;
 const STARTUP_DEFER_MS = 2500;
 const MAX_DIAGNOSTIC_EVENTS = 24;
-const DEVICE_META_CACHE_MS = 30000;
+// Directory-size scans can be expensive on entry-level TV storage. Health data
+// does not need byte-perfect values every few seconds, so reuse it briefly.
+const DEVICE_META_CACHE_MS = 120000;
+const PATH_SIZE_SCAN_CONCURRENCY = 4;
 const TV_BACK_DOUBLE_PRESS_MS = 1300;
 const QR_BACK_AUTO_CLOSE_MS = 15000;
 const INITIAL_SOURCE_SNAPSHOT: SourceSnapshot = {
@@ -162,15 +165,31 @@ async function getPathSizeSafe(targetPath: string): Promise<number> {
   try {
     const exists = await RNFS.exists(targetPath);
     if (!exists) return 0;
-    const stat = await RNFS.stat(targetPath);
-    if (!stat.isDirectory()) {
-      return Number(stat.size || 0);
-    }
-    const entries = await RNFS.readDir(targetPath);
-    const sizes: number[] = await Promise.all(
-      entries.map((entry) => getPathSizeSafe(entry.path))
+    // Do not create one Promise per file/folder. A large media cache previously
+    // made all recursive reads run together, which can stall lower-memory TVs.
+    const pending = [targetPath];
+    let total = 0;
+    const worker = async () => {
+      while (pending.length) {
+        const currentPath = pending.pop();
+        if (!currentPath) continue;
+        try {
+          const stat = await RNFS.stat(currentPath);
+          if (!stat.isDirectory()) {
+            total += Math.max(0, Number(stat.size || 0));
+            continue;
+          }
+          const entries = await RNFS.readDir(currentPath);
+          entries.forEach((entry) => pending.push(entry.path));
+        } catch {
+          // A file may disappear while media/cache cleanup is running.
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: PATH_SIZE_SCAN_CONCURRENCY }, () => worker())
     );
-    return sizes.reduce((sum: number, size: number) => sum + Number(size || 0), 0);
+    return total;
   } catch {
     return 0;
   }
@@ -261,6 +280,7 @@ export default function App() {
   const socketUrlRef = useRef("");
   const playbackBySectionRef = useRef<Record<number, any>>({});
   const lastMetaRef = useRef<any | null>(null);
+  const sourceSnapshotRef = useRef<SourceSnapshot>(INITIAL_SOURCE_SNAPSHOT);
   const lastConfigSyncAtRef = useRef("");
   const lastMediaSyncAtRef = useRef("");
   const pendingApkUpdateSuccessRef = useRef<any | null>(null);
@@ -312,6 +332,7 @@ export default function App() {
     configBytes: 0,
     cacheBytes: 0,
   });
+  const deviceMetaScanRef = useRef<Promise<void> | null>(null);
   const lastTvBackPressAtRef = useRef(0);
   const adminOpenedByBackRef = useRef(false);
   const sourceManagerRef = useRef(new SourceManager());
@@ -454,6 +475,7 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = sourceManagerRef.current.subscribe((snapshot) => {
+      sourceSnapshotRef.current = snapshot;
       console.log(
         "[USB_SOURCE]",
         JSON.stringify({
@@ -1704,15 +1726,27 @@ export default function App() {
         !!options.forceStorageScan ||
         now - Number(deviceMetaCacheRef.current.at || 0) > DEVICE_META_CACHE_MS;
       if (shouldRefreshStorage) {
-        const mediaBytes = await getPathSizeSafe(`${RNFS.DocumentDirectoryPath}/media`);
-        const configBytes = await getPathSizeSafe(`${RNFS.DocumentDirectoryPath}/config.json`);
-        const cacheBytes = await getPathSizeSafe(RNFS.CachesDirectoryPath);
-        deviceMetaCacheRef.current = {
-          at: now,
-          mediaBytes,
-          configBytes,
-          cacheBytes,
-        };
+        // Multiple socket/status requests may ask for a snapshot at once. They
+        // share one scan instead of traversing the same folders repeatedly.
+        if (!deviceMetaScanRef.current) {
+          deviceMetaScanRef.current = Promise.all([
+            getPathSizeSafe(`${RNFS.DocumentDirectoryPath}/media`),
+            getPathSizeSafe(`${RNFS.DocumentDirectoryPath}/config.json`),
+            getPathSizeSafe(RNFS.CachesDirectoryPath),
+          ])
+            .then(([mediaBytes, configBytes, cacheBytes]) => {
+              deviceMetaCacheRef.current = {
+                at: Date.now(),
+                mediaBytes,
+                configBytes,
+                cacheBytes,
+              };
+            })
+            .finally(() => {
+              deviceMetaScanRef.current = null;
+            });
+        }
+        await deviceMetaScanRef.current;
       }
 
       const {
@@ -1736,6 +1770,15 @@ export default function App() {
         cacheBytes,
         freeBytes: Number(storageStats?.freeBytes || 0),
         totalBytes: Number(storageStats?.totalBytes || 0),
+        playbackSource: sourceSnapshotRef.current.activeSource,
+        cmsOnlyMode: sourceSnapshotRef.current.cmsOnlyMode,
+        usb: {
+          mounted: sourceSnapshotRef.current.usbMounted,
+          hasPlayableMedia: sourceSnapshotRef.current.usbHasPlayableMedia,
+          sourceType: sourceSnapshotRef.current.usbSourceType,
+          mountPath: sourceSnapshotRef.current.usbMountPath,
+          playlistCount: sourceSnapshotRef.current.usbPlaylist.length,
+        },
         ...extra,
       };
     };

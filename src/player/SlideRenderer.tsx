@@ -139,6 +139,9 @@ export default function SlideRenderer({
   const transitionBackdropTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRenderSnapshotRef = useRef<any | null>(null);
   const pendingAdvanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Invalidates callbacks created for an older playlist/item. This prevents a
+  // delayed timer from advancing the newly-applied CMS/USB playlist.
+  const playbackTimerGenerationRef = useRef(0);
   const lastVideoAdvanceIdentityRef = useRef<string>("");
   const EMPTY_FETCH_CLEAR_THRESHOLD = 8;
   const MAX_SINGLE_VIDEO_RETRY = 3;
@@ -1352,6 +1355,7 @@ export default function SlideRenderer({
     if (!files.length) return;
 
     if (timerRef.current) clearTimeout(timerRef.current);
+    const timerGeneration = ++playbackTimerGenerationRef.current;
     const file = files[index];
     const isVideo = isVideoFile(file);
     if (!isVideo) {
@@ -1360,11 +1364,13 @@ export default function SlideRenderer({
           config?.slideDuration ||
           5) * 1000;
       timerRef.current = setTimeout(() => {
+        if (playbackTimerGenerationRef.current !== timerGeneration || !isMountedRef.current) return;
         if (isNextImageReady()) {
           goNext();
           return;
         }
         timerRef.current = setTimeout(() => {
+          if (playbackTimerGenerationRef.current !== timerGeneration || !isMountedRef.current) return;
           if (isNextImageReady()) {
             goNext();
             return;
@@ -1374,6 +1380,9 @@ export default function SlideRenderer({
       }, duration);
     }
     return () => {
+      if (playbackTimerGenerationRef.current === timerGeneration) {
+        playbackTimerGenerationRef.current += 1;
+      }
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [index, files, config, sectionIndex, sourceType, imageSlotLoaded, imageVisibleSlot]);

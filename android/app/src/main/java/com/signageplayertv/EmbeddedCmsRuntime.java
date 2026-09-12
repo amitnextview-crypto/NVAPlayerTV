@@ -46,6 +46,14 @@ public final class EmbeddedCmsRuntime {
     private static final int[] SERVER_PORT_CANDIDATES = new int[]{8080, 8081, 9090, 10080};
 
     private static final Object LOCK = new Object();
+    private static final Object STATUS_SIZE_LOCK = new Object();
+    // Status is requested repeatedly by open CMS pages. Reusing size data keeps
+    // the embedded server free for uploads, settings, and restart commands.
+    private static final long STATUS_SIZE_CACHE_MS = 120000L;
+    private static long statusSizeCacheAt = 0L;
+    private static long cachedMediaBytes = 0L;
+    private static long cachedConfigBytes = 0L;
+    private static long cachedCacheBytes = 0L;
     private static WeakReference<ReactApplicationContext> reactContextRef = new WeakReference<>(null);
     private static TvDiscoveryManager discoveryManager;
     private static EmbeddedCmsServer server;
@@ -476,9 +484,10 @@ public final class EmbeddedCmsRuntime {
             meta.put("appVersion", getAppVersion(context));
             meta.put("freeBytes", freeBytes);
             meta.put("totalBytes", totalBytes);
-            meta.put("mediaBytes", dirSize(new File(context.getFilesDir(), "cms-media")));
-            meta.put("configBytes", fileSize(new File(context.getFilesDir(), "config.json")));
-            meta.put("cacheBytes", dirSize(context.getCacheDir()));
+            long[] sizes = getCachedStatusSizes(context);
+            meta.put("mediaBytes", sizes[0]);
+            meta.put("configBytes", sizes[1]);
+            meta.put("cacheBytes", sizes[2]);
 
             out.put("name", getDeviceName(context));
             out.put("deviceId", getDeviceId(context));
@@ -547,6 +556,19 @@ public final class EmbeddedCmsRuntime {
             }
         }
         return array;
+    }
+
+    private static long[] getCachedStatusSizes(Context context) {
+        synchronized (STATUS_SIZE_LOCK) {
+            long now = System.currentTimeMillis();
+            if (now - statusSizeCacheAt >= STATUS_SIZE_CACHE_MS) {
+                cachedMediaBytes = dirSize(new File(context.getFilesDir(), "cms-media"));
+                cachedConfigBytes = fileSize(new File(context.getFilesDir(), "config.json"));
+                cachedCacheBytes = dirSize(context.getCacheDir());
+                statusSizeCacheAt = now;
+            }
+            return new long[]{cachedMediaBytes, cachedConfigBytes, cachedCacheBytes};
+        }
     }
 
     public static void refreshDiscoveredDevices(Context context) {
