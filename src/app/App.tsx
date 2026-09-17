@@ -263,6 +263,8 @@ export default function App() {
     3: 0,
   });
   const [sectionPlaybackTimeline, setSectionPlaybackTimeline] = useState<Record<number, any>>({});
+  // Transient only: this is intentionally reset whenever the app reloads.
+  const [playerPaused, setPlayerPaused] = useState(false);
   const [apkUpdateState, setApkUpdateState] = useState<{
     status: string;
     message: string;
@@ -994,6 +996,10 @@ export default function App() {
     const nativeDeviceModule = (NativeModules as any)?.DeviceIdModule;
     if (!nativeDeviceModule) return;
     startEmbeddedCmsServer();
+    // Reset the in-memory CMS command when React reloads; pause must never
+    // survive a reload or app restart.
+    nativeDeviceModule.resetPlayerControlSession?.();
+    setPlayerPaused(false);
     const emitter = new NativeEventEmitter(nativeDeviceModule);
     const sub = emitter.addListener("apkUpdateProgress", (payload: any) => {
       const status = String(payload?.status || "").trim();
@@ -1189,6 +1195,10 @@ export default function App() {
         }
         if (type === "device-command") {
           const action = String(payload?.action || "").trim();
+          if (action === "set-player-paused") {
+            setPlayerPaused(payload?.paused === true);
+            return;
+          }
           if (action === "force-sync" || action === "refresh-content" || action === "refresh") {
             sourceManagerRef.current.onCmsUpdate();
             await refreshPlayerMediaImmediately();
@@ -2628,6 +2638,7 @@ export default function App() {
     active: !!scheduledConfig.activeEntry,
     activeEntryId: String(scheduledConfig.activeEntry?.id || ""),
   };
+  effectiveConfig.__playerPaused = playerPaused;
   const playbackSourceVersion =
     sourceSnapshot.activeSource === "USB"
       ? [

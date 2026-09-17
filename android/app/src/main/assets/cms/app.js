@@ -704,6 +704,54 @@ function getOnlineTargetDevices() {
   return { onlineTargets, offlineTargets };
 }
 
+async function toggleSelectedPlayerPause() {
+  const { onlineTargets, offlineTargets } = getOnlineTargetDevices();
+  if (!onlineTargets.length) {
+    showNotice("error", "Player Control Failed", "Select at least one online device.");
+    return;
+  }
+
+  const button = document.getElementById("playerPauseToggleBtn");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Checking Player...";
+  }
+  try {
+    const states = await Promise.all(onlineTargets.map(async (device) => {
+      const origin = getDeviceOptionValue(device);
+      const response = await fetch(`${origin}/config/player-control`, {
+        headers: buildCmsAuthHeaders(), cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`${device.name || origin}: status unavailable`);
+      return response.json();
+    }));
+    // A mixed selection pauses every selected TV; an all-paused selection resumes it.
+    const shouldPause = !states.every((state) => state?.paused === true);
+    const results = await Promise.allSettled(onlineTargets.map(async (device) => {
+      const origin = getDeviceOptionValue(device);
+      const response = await fetch(`${origin}/config/player-control`, {
+        method: "POST",
+        headers: buildCmsAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ paused: shouldPause }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success) throw new Error(`${device.name || origin}: command failed`);
+    }));
+    const failed = results.filter((result) => result.status === "rejected");
+    if (failed.length) throw new Error(`${failed.length} device command(s) failed.`);
+    const skipped = offlineTargets.length ? ` ${offlineTargets.length} offline device(s) skipped.` : "";
+    showNotice("success", shouldPause ? "Player Paused" : "Player Resumed", `${onlineTargets.length} selected TV(s) updated.${skipped}`);
+    if (button) button.textContent = shouldPause ? "Resume Player" : "Pause Player";
+  } catch (error) {
+    showNotice("error", "Player Control Failed", String(error?.message || "Unable to update player state."), 6500);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      if (button.textContent === "Checking Player...") button.textContent = "Pause Player";
+    }
+  }
+}
+
 function getPrimaryOrigin() {
   return getSelectedOrigins()[0] || Array.from(currentDeviceMap.keys())[0] || getCurrentOrigin();
 }

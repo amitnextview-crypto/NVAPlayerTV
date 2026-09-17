@@ -98,6 +98,8 @@ export default function SlideRenderer({
   const livePulse = useRef(new Animated.Value(1)).current;
   const videoFade = useRef(new Animated.Value(1)).current;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const slideDeadlineRef = useRef(0);
+  const pausedSlideRemainingMsRef = useRef<number | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const filesRef = useRef<any[]>([]);
   const indexRef = useRef(0);
@@ -303,6 +305,9 @@ export default function SlideRenderer({
   // deliberately ignored so previously-muted sections recover normal audio.
   const sectionVideoVolume = 1;
   const sectionVideoMuted = false;
+  const playerPaused = config?.__playerPaused === true;
+  const playerPausedRef = useRef(playerPaused);
+  playerPausedRef.current = playerPaused;
   const isMultiPaneLayout = config?.layout === "grid2" || config?.layout === "grid3";
   const mediaRotateLayerStyle = styles.fillLayer;
 
@@ -659,12 +664,13 @@ export default function SlideRenderer({
       setTemplateIndex(0);
       return;
     }
+    if (playerPaused) return;
     const durationMs = getSlideDurationMs();
     const timer = setInterval(() => {
       setTemplateIndex((prev) => (prev + 1) % sourceTemplates.length);
     }, durationMs);
     return () => clearInterval(timer);
-  }, [sourceType, sourceTemplates.length, sectionIndex, config?.sections]);
+  }, [sourceType, sourceTemplates.length, sectionIndex, config?.sections, playerPaused]);
 
   useEffect(() => {
     if (sourceType !== SOURCE_TYPES.multimedia) return;
@@ -949,6 +955,7 @@ export default function SlideRenderer({
     if (!files.length) return;
     const active = files[index];
     if (isVideoFile(active)) return;
+    if (playerPaused) return;
     const watchdog = setInterval(() => {
       if (!filesRef.current.length || filesRef.current.length === 1) return;
       const elapsed = Date.now() - lastIndexChangeAtRef.current;
@@ -957,7 +964,7 @@ export default function SlideRenderer({
       }
     }, 1200);
     return () => clearInterval(watchdog);
-  }, [files, index, sourceType, config, sectionIndex, imageSlotLoaded, imageVisibleSlot]);
+  }, [files, index, sourceType, config, sectionIndex, imageSlotLoaded, imageVisibleSlot, playerPaused]);
 
   const getNextIndexForPlayback = () => {
     if (!files.length) return indexRef.current;
@@ -1355,16 +1362,20 @@ export default function SlideRenderer({
     if (!files.length) return;
 
     if (timerRef.current) clearTimeout(timerRef.current);
+    if (playerPaused) return;
     const timerGeneration = ++playbackTimerGenerationRef.current;
     const file = files[index];
     const isVideo = isVideoFile(file);
     if (!isVideo) {
-      const duration =
+      const duration = pausedSlideRemainingMsRef.current ??
         (config?.sections?.[sectionIndex]?.slideDuration ||
           config?.slideDuration ||
           5) * 1000;
+      pausedSlideRemainingMsRef.current = null;
+      slideDeadlineRef.current = Date.now() + duration;
       timerRef.current = setTimeout(() => {
         if (playbackTimerGenerationRef.current !== timerGeneration || !isMountedRef.current) return;
+        slideDeadlineRef.current = 0;
         if (isNextImageReady()) {
           goNext();
           return;
@@ -1384,8 +1395,12 @@ export default function SlideRenderer({
         playbackTimerGenerationRef.current += 1;
       }
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (playerPausedRef.current && slideDeadlineRef.current > 0) {
+        pausedSlideRemainingMsRef.current = Math.max(0, slideDeadlineRef.current - Date.now());
+      }
+      slideDeadlineRef.current = 0;
     };
-  }, [index, files, config, sectionIndex, sourceType, imageSlotLoaded, imageVisibleSlot]);
+  }, [index, files, config, sectionIndex, sourceType, imageSlotLoaded, imageVisibleSlot, playerPaused]);
 
   useEffect(() => {
     if (sourceType !== SOURCE_TYPES.multimedia) return;
@@ -1444,12 +1459,13 @@ export default function SlideRenderer({
     if (!files.length) return;
     const active = files[index];
     if (isVideoFile(active)) return;
+    if (playerPaused) return;
     const timer = setInterval(() => {
       if (!isMountedRef.current) return;
       setPlaybackClock((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, [files, sourceType, index]);
+  }, [files, sourceType, index, playerPaused]);
 
   useEffect(() => {
     if (!contentResetVersion) return;
@@ -1482,6 +1498,7 @@ export default function SlideRenderer({
   }, [contentResetVersion]);
 
   const goNext = () => {
+    if (playerPausedRef.current) return;
     if (!files.length) return;
     if (files.length === 1) return;
     const { nextIndex, wrappedToStart } = getPlaylistAdvanceState(
@@ -1489,6 +1506,8 @@ export default function SlideRenderer({
       indexRef.current
     );
     resumeRestoreAllowedRef.current = false;
+    pausedSlideRemainingMsRef.current = null;
+    slideDeadlineRef.current = 0;
     setResumePositionMs(0);
     clearSavedPlaybackPosition(filesRef.current[indexRef.current]).catch(() => {
       // ignore
@@ -2118,6 +2137,7 @@ export default function SlideRenderer({
           mediaResizeMode={mediaResizeMode}
           videoVolume={sectionVideoVolume}
           videoMuted={sectionVideoMuted}
+          playerPaused={playerPaused}
           forceLocalRestart={forceLocalRestart}
           pdfReloadToken={pdfReloadToken}
           pdfSlotUrls={pdfSlotUrls}

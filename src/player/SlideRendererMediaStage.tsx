@@ -21,6 +21,7 @@ type Props = {
   mediaResizeMode: any;
   videoVolume: number;
   videoMuted: boolean;
+  playerPaused: boolean;
   forceLocalRestart: boolean;
   pdfReloadToken: number;
   pdfSlotUrls: { a: string; b: string };
@@ -70,6 +71,7 @@ export default function SlideRendererMediaStage(props: Props) {
     mediaResizeMode,
     videoVolume,
     videoMuted,
+    playerPaused,
     forceLocalRestart,
     pdfReloadToken,
     pdfSlotUrls,
@@ -133,6 +135,7 @@ export default function SlideRendererMediaStage(props: Props) {
             rotation={0}
             muted={videoMuted}
             volume={videoVolume}
+            paused={playerPaused}
             startPositionMs={resumePositionMs}
             resizeMode={mediaResizeMode}
             repeat={files.length === 1 && !forceLocalRestart}

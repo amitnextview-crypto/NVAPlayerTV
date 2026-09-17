@@ -256,6 +256,12 @@ public final class EmbeddedCmsRuntime {
         }
     }
 
+    public static void resetPlayerControlSession() {
+        synchronized (LOCK) {
+            if (server != null) server.resetPlayerControlSession();
+        }
+    }
+
     public static void restartServerAsync(Context context) {
         final Context appContext = context.getApplicationContext();
         new Thread(() -> {

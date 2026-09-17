@@ -72,11 +72,17 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
     private final Context context;
     private final AssetManager assetManager;
     private final Object chunkUploadLock = new Object();
+    // Process-only state: app restart always resumes normal playback.
+    private volatile boolean playerPaused = false;
 
     public EmbeddedCmsServer(Context context, int port) {
         super("0.0.0.0", port);
         this.context = context.getApplicationContext();
         this.assetManager = this.context.getAssets();
+    }
+
+    void resetPlayerControlSession() {
+        playerPaused = false;
     }
 
     @Override
@@ -240,6 +246,10 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
             }
             if ("/config/delete-section-media".equals(uri) && Method.POST.equals(session.getMethod())) {
                 return handleDeleteSectionMedia(session);
+            }
+            if ("/config/player-control".equals(uri)) {
+                if (Method.GET.equals(session.getMethod())) return handlePlayerControlStatus();
+                if (Method.POST.equals(session.getMethod())) return handlePlayerControl(session);
             }
             if ("/config/bulk-action".equals(uri) && Method.POST.equals(session.getMethod())) {
                 return handleBulkAction(session);
@@ -845,6 +855,27 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         out.put("success", success);
         out.put("delivered", success ? 1 : 0);
         out.put("skipped", new JSONArray());
+        return json(out);
+    }
+
+    private Response handlePlayerControlStatus() throws Exception {
+        JSONObject out = new JSONObject();
+        out.put("success", true);
+        out.put("paused", playerPaused);
+        return json(out);
+    }
+
+    private Response handlePlayerControl(IHTTPSession session) throws Exception {
+        JSONObject body = readJsonBody(session);
+        if (!body.has("paused")) return errorJson(Response.Status.BAD_REQUEST, "paused-required", null);
+        playerPaused = body.optBoolean("paused", false);
+        JSONObject command = new JSONObject();
+        command.put("action", "set-player-paused");
+        command.put("paused", playerPaused);
+        EmbeddedCmsRuntime.emitEvent("device-command", command);
+        JSONObject out = new JSONObject();
+        out.put("success", true);
+        out.put("paused", playerPaused);
         return json(out);
     }
 

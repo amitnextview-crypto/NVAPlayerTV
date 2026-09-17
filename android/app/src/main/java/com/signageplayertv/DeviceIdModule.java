@@ -117,6 +117,11 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
         EmbeddedCmsRuntime.ensureStarted(reactContext.getApplicationContext());
     }
 
+    @ReactMethod
+    public void resetPlayerControlSession() {
+        EmbeddedCmsRuntime.resetPlayerControlSession();
+    }
+
     @ReactMethod(isBlockingSynchronousMethod = true)
     public WritableMap getCmsAccessInfo() {
         return EmbeddedCmsRuntime.getCmsAccessInfoMap(reactContext.getApplicationContext());
