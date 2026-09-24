@@ -3343,6 +3343,9 @@ function buildConfigFromForm() {
         format: document.getElementById("clockFormat")?.value || "12h",
         position: document.getElementById("clockPosition")?.value || "top-left",
         transparency: Number(document.getElementById("clockTransparency")?.value || 50) / 100,
+        size: Number(document.getElementById("clockSize")?.value || 100) / 100,
+        textColor: document.getElementById("clockTextColor")?.value || "#38bdf8",
+        bgColor: document.getElementById("clockBgColor")?.value || "#000000",
       },
       weather: {
         enabled: document.getElementById("weatherEnabled")?.checked || false,
@@ -3350,6 +3353,9 @@ function buildConfigFromForm() {
         unit: document.getElementById("weatherUnit")?.value || "celsius",
         position: document.getElementById("weatherPosition")?.value || "top-right",
         transparency: Number(document.getElementById("weatherTransparency")?.value || 50) / 100,
+        size: Number(document.getElementById("weatherSize")?.value || 100) / 100,
+        textColor: document.getElementById("weatherTextColor")?.value || "#4ade80",
+        bgColor: document.getElementById("weatherBgColor")?.value || "#000000",
       },
       emergencyAlert: {
         enabled: document.getElementById("emergencyEnabled")?.checked || false,
@@ -3470,6 +3476,9 @@ function applyConfigToForm(config = {}) {
     setFormValue("clockFormat", config.widgets?.clock?.format || "12h");
     setFormValue("clockPosition", config.widgets?.clock?.position || "top-left");
     setFormValue("clockTransparency", (config.widgets?.clock?.transparency || 0.5) * 100);
+    setFormValue("clockSize", (config.widgets?.clock?.size || 1) * 100);
+    setFormValue("clockTextColor", config.widgets?.clock?.textColor || "#38bdf8");
+    setFormValue("clockBgColor", config.widgets?.clock?.bgColor || "#000000");
 
     const weatherEnabledEl = document.getElementById("weatherEnabled");
     if (weatherEnabledEl) weatherEnabledEl.checked = config.widgets?.weather?.enabled || false;
@@ -3477,6 +3486,9 @@ function applyConfigToForm(config = {}) {
     setFormValue("weatherUnit", config.widgets?.weather?.unit || "celsius");
     setFormValue("weatherPosition", config.widgets?.weather?.position || "top-right");
     setFormValue("weatherTransparency", (config.widgets?.weather?.transparency || 0.5) * 100);
+    setFormValue("weatherSize", (config.widgets?.weather?.size || 1) * 100);
+    setFormValue("weatherTextColor", config.widgets?.weather?.textColor || "#4ade80");
+    setFormValue("weatherBgColor", config.widgets?.weather?.bgColor || "#000000");
     
     const emergencyEnabledEl = document.getElementById("emergencyEnabled");
     if (emergencyEnabledEl) emergencyEnabledEl.checked = config.widgets?.emergencyAlert?.enabled || false;

@@ -66,8 +66,11 @@ const WeatherWidget = ({ config }: { config: any }) => {
 
   const position = config?.position || "top-right";
   const transparency = config?.transparency || 0.5; // 0 = opaque, 1 = fully transparent
-  const bgColor = `rgba(0, 0, 0, ${1 - transparency})`;
-  const borderColor = `rgba(74, 222, 128, ${1 - transparency})`;
+  const size = config?.size || 1; // 0.5 = small, 2 = large
+  const bgColor = config?.bgColor || "#000000";
+  const textColor = config?.textColor || "#4ade80";
+  const bgAlpha = `rgba(${parseInt(bgColor.slice(1, 3), 16)}, ${parseInt(bgColor.slice(3, 5), 16)}, ${parseInt(bgColor.slice(5, 7), 16)}, ${1 - transparency})`;
+  const borderColor = `rgba(${parseInt(textColor.slice(1, 3), 16)}, ${parseInt(textColor.slice(3, 5), 16)}, ${parseInt(textColor.slice(5, 7), 16)}, ${1 - transparency})`;
   const positionStyle = {
     position: "absolute" as const,
     top: position.includes("top") ? 20 : undefined,
@@ -77,11 +80,11 @@ const WeatherWidget = ({ config }: { config: any }) => {
   };
 
   return (
-    <View style={[positionStyle, { backgroundColor: bgColor, padding: 14, borderRadius: 10, borderWidth: 1, borderColor: borderColor }]}>
-      <Text style={{ color: "#4ade80", fontSize: 24, fontWeight: "bold" }}>
+    <View style={[positionStyle, { backgroundColor: bgAlpha, padding: 14 * size, borderRadius: 10, borderWidth: 1, borderColor: borderColor }]}>
+      <Text style={{ color: textColor, fontSize: 24 * size, fontWeight: "bold" }}>
         {loading ? "Loading..." : condition}
       </Text>
-      <Text style={{ color: "#ffffff", fontSize: 20, fontWeight: "800", marginTop: 2 }}>
+      <Text style={{ color: textColor, fontSize: 20 * size, fontWeight: "800", marginTop: 2 }}>
         {config?.city || "Delhi"}: {temp}
       </Text>
     </View>

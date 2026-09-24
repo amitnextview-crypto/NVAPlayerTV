@@ -1554,6 +1554,9 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         clock.put("format", "12h");
         clock.put("position", "top-left");
         clock.put("transparency", 0.5);
+        clock.put("size", 1.0);
+        clock.put("textColor", "#38bdf8");
+        clock.put("bgColor", "#000000");
         widgets.put("clock", clock);
         JSONObject weather = new JSONObject();
         weather.put("enabled", false);
@@ -1561,6 +1564,9 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         weather.put("unit", "celsius");
         weather.put("position", "top-right");
         weather.put("transparency", 0.5);
+        weather.put("size", 1.0);
+        weather.put("textColor", "#4ade80");
+        weather.put("bgColor", "#000000");
         widgets.put("weather", weather);
         JSONObject emergencyAlert = new JSONObject();
         emergencyAlert.put("enabled", false);
