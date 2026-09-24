@@ -263,6 +263,13 @@ export default function App() {
     3: 0,
   });
   const [sectionPlaybackTimeline, setSectionPlaybackTimeline] = useState<Record<number, any>>({});
+  const [emergencyAlert, setEmergencyAlert] = useState<{ active: boolean; type: string; title: string; message: string; sound: boolean }>({
+    active: false,
+    type: "FIRE",
+    title: "EMERGENCY ALERT",
+    message: "PLEASE EVACUATE IMMEDIATELY!",
+    sound: false,
+  });
   // Transient only: this is intentionally reset whenever the app reloads.
   const [playerPaused, setPlayerPaused] = useState(false);
   const [apkUpdateState, setApkUpdateState] = useState<{
@@ -1166,6 +1173,20 @@ export default function App() {
           void finalizePlayerMediaRefresh(section);
           return;
         }
+        if (type === "emergency-alert-triggered") {
+          setEmergencyAlert({
+            active: true,
+            type: payload?.type || "FIRE",
+            title: payload?.title || "EMERGENCY ALERT",
+            message: payload?.message || "PLEASE EVACUATE IMMEDIATELY!",
+            sound: payload?.sound || false,
+          });
+          return;
+        }
+        if (type === "emergency-alert-cleared") {
+          setEmergencyAlert({ ...emergencyAlert, active: false });
+          return;
+        }
         if (type === "play-now") {
           sourceManagerRef.current.onCmsUpdate();
           const section = Number(payload?.section || 1);
@@ -1217,6 +1238,15 @@ export default function App() {
           }
           if (action === "clear-uploaded-media") {
             await clearRuntimeUploadedMedia();
+            sourceManagerRef.current.onCmsUpdate();
+            await refreshPlayerMediaImmediately();
+            void finalizePlayerMediaRefresh();
+            return;
+          }
+          if (action === "clear-cache-and-playback") {
+            await clearRuntimeUploadedMedia();
+            await clearPersistedPlaybackState();
+            await clearRuntimeCacheOnly();
             sourceManagerRef.current.onCmsUpdate();
             await refreshPlayerMediaImmediately();
             void finalizePlayerMediaRefresh();
@@ -2806,6 +2836,8 @@ export default function App() {
             uploadCountsBySection={uploadCountsBySection}
             onPlaybackChange={handlePlaybackChange}
             onPlaybackError={handlePlaybackError}
+            emergencyAlert={emergencyAlert}
+            onClearEmergencyAlert={() => setEmergencyAlert({ ...emergencyAlert, active: false })}
           />
         </PlayerErrorBoundary>
         {sourceSnapshot.activeSource === "USB" && !showAdmin && !showUsbSettings ? (

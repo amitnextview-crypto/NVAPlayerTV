@@ -3109,6 +3109,7 @@ function renderScreenPreview() {
   if (!preview) return;
   preview.innerHTML = liveLayoutMarkup(layout, selectedGrid3Layout);
   applyPreviewTicker(preview, config.ticker || {});
+  applyPreviewWidgets(preview, config.widgets || {});
   startLivePreviewPlayback(config);
 }
 
@@ -3187,6 +3188,113 @@ function applyPreviewTicker(preview, ticker = {}) {
   });
 }
 
+function applyPreviewWidgets(preview, widgets = {}) {
+  // Remove existing widgets
+  preview.querySelectorAll(".preview-widget").forEach(el => el.remove());
+
+  const clock = widgets.clock || {};
+  const weather = widgets.weather || {};
+  const emergency = widgets.emergencyAlert || {};
+
+  // Clock Widget
+  if (clock.enabled) {
+    const clockEl = document.createElement("div");
+    clockEl.className = "preview-widget preview-clock";
+    const position = clock.position || "top-left";
+    clockEl.style.position = "absolute";
+    clockEl.style.top = position.includes("top") ? "10px" : "auto";
+    clockEl.style.bottom = position.includes("bottom") ? "10px" : "auto";
+    clockEl.style.left = position.includes("left") ? "10px" : "auto";
+    clockEl.style.right = position.includes("right") ? "10px" : "auto";
+    clockEl.style.background = "rgba(15, 23, 42, 0.92)";
+    clockEl.style.padding = "10px 14px";
+    clockEl.style.borderRadius = "8px";
+    clockEl.style.border = "1px solid #38bdf8";
+    clockEl.style.color = "#38bdf8";
+    clockEl.style.fontSize = "18px";
+    clockEl.style.fontWeight = "bold";
+    clockEl.style.zIndex = "10";
+    clockEl.innerHTML = `🕒 <span class="clock-time">--:--:--</span>`;
+    preview.appendChild(clockEl);
+
+    // Update clock time
+    const updateTime = () => {
+      const now = new Date();
+      const is24h = clock.format === "24h";
+      const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: !is24h });
+      const timeSpan = clockEl.querySelector(".clock-time");
+      if (timeSpan) timeSpan.textContent = timeStr;
+    };
+    updateTime();
+    if (clockEl.__clockInterval) clearInterval(clockEl.__clockInterval);
+    clockEl.__clockInterval = setInterval(updateTime, 1000);
+  }
+
+  // Weather Widget
+  if (weather.enabled) {
+    const weatherEl = document.createElement("div");
+    weatherEl.className = "preview-widget preview-weather";
+    const position = weather.position || "top-right";
+    weatherEl.style.position = "absolute";
+    weatherEl.style.top = position.includes("top") ? "10px" : "auto";
+    weatherEl.style.bottom = position.includes("bottom") ? "10px" : "auto";
+    weatherEl.style.left = position.includes("left") ? "10px" : "auto";
+    weatherEl.style.right = position.includes("right") ? "10px" : "auto";
+    weatherEl.style.background = "rgba(15, 23, 42, 0.92)";
+    weatherEl.style.padding = "10px 14px";
+    weatherEl.style.borderRadius = "8px";
+    weatherEl.style.border = "1px solid #4ade80";
+    weatherEl.style.color = "#4ade80";
+    weatherEl.style.fontSize = "16px";
+    weatherEl.style.fontWeight = "bold";
+    weatherEl.style.zIndex = "10";
+    weatherEl.innerHTML = `<span class="weather-condition">Loading...</span><br><span class="weather-temp">${weather.city || "Delhi"}: --°</span>`;
+    preview.appendChild(weatherEl);
+
+    // Simulate weather data
+    setTimeout(() => {
+      const conditionEl = weatherEl.querySelector(".weather-condition");
+      const tempEl = weatherEl.querySelector(".weather-temp");
+      if (conditionEl) conditionEl.textContent = "Partly Cloudy ⛅";
+      if (tempEl) {
+        const unit = weather.unit === "fahrenheit" ? "°F" : "°C";
+        const temp = weather.unit === "fahrenheit" ? "86" : "30";
+        tempEl.textContent = `${weather.city || "Delhi"}: ${temp}${unit}`;
+      }
+    }, 1000);
+  }
+
+  // Emergency Alert Overlay
+  if (emergency.enabled) {
+    const emergencyEl = document.createElement("div");
+    emergencyEl.className = "preview-widget preview-emergency";
+    emergencyEl.style.position = "absolute";
+    emergencyEl.style.top = "0";
+    emergencyEl.style.left = "0";
+    emergencyEl.style.right = "0";
+    emergencyEl.style.bottom = "0";
+    emergencyEl.style.background = emergency.type === "FIRE" ? "#ef4444" : emergency.type === "EVACUATION" ? "#f97316" : "#0284c7";
+    emergencyEl.style.zIndex = "9999";
+    emergencyEl.style.display = "flex";
+    emergencyEl.style.flexDirection = "column";
+    emergencyEl.style.justifyContent = "center";
+    emergencyEl.style.alignItems = "center";
+    emergencyEl.style.padding = "24px";
+    emergencyEl.innerHTML = `
+      <div style="color: #ffffff; font-size: 36px; font-weight: 900; text-align: center; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 16px;">
+        ${emergency.title || "🚨 EMERGENCY ALERT"}
+      </div>
+      <div style="color: #ffffff; font-size: 24px; font-weight: bold; text-align: center; line-height: 1.5;">
+        ${emergency.message || "PLEASE EVACUATE IMMEDIATELY!"}
+      </div>
+      <button onclick="this.parentElement.remove()" style="margin-top: 32px; background: #ffffff; color: #000000; padding: 12px 24px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
+        CLEAR EMERGENCY ALERT
+      </button>
+    `;
+    preview.appendChild(emergencyEl);
+  }
+}
+
 function buildConfigFromForm() {
   const section1Duration = Number(document.getElementById("duration1").value || 5);
   return {
@@ -3228,6 +3336,28 @@ function buildConfigFromForm() {
       speed: Number(document.getElementById("tickerSpeed").value || 6),
       fontSize: Number(document.getElementById("tickerFontSize").value || 24),
       position: document.getElementById("tickerPosition").value,
+    },
+    widgets: {
+      clock: {
+        enabled: document.getElementById("clockEnabled")?.checked || false,
+        format: document.getElementById("clockFormat")?.value || "12h",
+        position: document.getElementById("clockPosition")?.value || "top-left",
+        transparency: Number(document.getElementById("clockTransparency")?.value || 50) / 100,
+      },
+      weather: {
+        enabled: document.getElementById("weatherEnabled")?.checked || false,
+        city: document.getElementById("weatherCity")?.value || "Delhi",
+        unit: document.getElementById("weatherUnit")?.value || "celsius",
+        position: document.getElementById("weatherPosition")?.value || "top-right",
+        transparency: Number(document.getElementById("weatherTransparency")?.value || 50) / 100,
+      },
+      emergencyAlert: {
+        enabled: document.getElementById("emergencyEnabled")?.checked || false,
+        type: document.getElementById("emergencyType")?.value || "FIRE",
+        title: document.getElementById("emergencyTitle")?.value || "EMERGENCY ALERT",
+        message: document.getElementById("emergencyMessage")?.value || "PLEASE EVACUATE IMMEDIATELY!",
+        sound: document.getElementById("emergencySound")?.checked || false,
+      },
     },
     cache: {
       videoMB: Number(document.getElementById("videoCacheMB")?.value || 2048),
@@ -3333,6 +3463,29 @@ function applyConfigToForm(config = {}) {
     setFormValue("tickerColor", config.ticker?.color || "#ffffff");
     setFormValue("tickerBgColor", config.ticker?.bgColor || "#000000");
     setFormValue("tickerSpeed", config.ticker?.speed ?? 6);
+    
+    // Widget settings
+    const clockEnabledEl = document.getElementById("clockEnabled");
+    if (clockEnabledEl) clockEnabledEl.checked = config.widgets?.clock?.enabled || false;
+    setFormValue("clockFormat", config.widgets?.clock?.format || "12h");
+    setFormValue("clockPosition", config.widgets?.clock?.position || "top-left");
+    setFormValue("clockTransparency", (config.widgets?.clock?.transparency || 0.5) * 100);
+
+    const weatherEnabledEl = document.getElementById("weatherEnabled");
+    if (weatherEnabledEl) weatherEnabledEl.checked = config.widgets?.weather?.enabled || false;
+    setFormValue("weatherCity", config.widgets?.weather?.city || "Delhi");
+    setFormValue("weatherUnit", config.widgets?.weather?.unit || "celsius");
+    setFormValue("weatherPosition", config.widgets?.weather?.position || "top-right");
+    setFormValue("weatherTransparency", (config.widgets?.weather?.transparency || 0.5) * 100);
+    
+    const emergencyEnabledEl = document.getElementById("emergencyEnabled");
+    if (emergencyEnabledEl) emergencyEnabledEl.checked = config.widgets?.emergencyAlert?.enabled || false;
+    setFormValue("emergencyType", config.widgets?.emergencyAlert?.type || "FIRE");
+    setFormValue("emergencyTitle", config.widgets?.emergencyAlert?.title || "EMERGENCY ALERT");
+    setFormValue("emergencyMessage", config.widgets?.emergencyAlert?.message || "PLEASE EVACUATE IMMEDIATELY!");
+    const emergencySoundEl = document.getElementById("emergencySound");
+    if (emergencySoundEl) emergencySoundEl.checked = config.widgets?.emergencyAlert?.sound || false;
+    
     setFormValue("videoCacheMB", config.cache?.videoMB || 2048);
     setScheduleToForm(config.schedule);
 
@@ -5297,6 +5450,106 @@ async function loadConfig(options = {}) {
   return config;
 }
 
+async function triggerEmergencyAlert() {
+  const config = buildConfigFromForm();
+  const emergency = config.widgets?.emergencyAlert || {};
+  
+  // Check if emergency alert is enabled
+  if (!emergency.enabled) {
+    showNotice("warning", "Emergency Alert Disabled", "Enable Emergency Alert in Widget Settings before triggering.", 5000);
+    return;
+  }
+  
+  const { onlineTargets } = getOnlineTargetDevices();
+  const targetDevices = onlineTargets
+    .map((device) => getDeviceOptionValue(device))
+    .filter(Boolean);
+
+  if (!targetDevices.length) {
+    showNotice("warning", "No Online Device Selected", "Select at least one online device before triggering alert.", 5000);
+    return;
+  }
+
+  if (!(await showConfirmDialog("Trigger Emergency Alert", "This will display a fullscreen emergency alert on the selected devices. Continue?", "Yes, Trigger", "Cancel"))) {
+    return;
+  }
+
+  setLoaderVisibility(true);
+  updateUploadProgress(10, `Sending emergency alert to ${targetDevices.length} device${targetDevices.length === 1 ? "" : "s"}...`);
+
+  try {
+    const payload = {
+      type: emergency.type || "FIRE",
+      title: emergency.title || "EMERGENCY ALERT",
+      message: emergency.message || "PLEASE EVACUATE IMMEDIATELY!",
+      sound: emergency.sound || false,
+    };
+
+    const requests = targetDevices.map(async (targetDevice) => {
+      const res = await fetch(`${targetDevice}/config/trigger-emergency`, {
+        method: "POST",
+        headers: buildCmsAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed (HTTP ${res.status})`);
+      }
+      return await res.json();
+    });
+
+    await Promise.allSettled(requests);
+    updateUploadProgress(100, "Emergency alert triggered successfully.");
+    showNotice("success", "Alert Triggered", "Emergency alert has been sent to selected devices.", 3000);
+  } catch (err) {
+    showNotice("error", "Trigger Failed", String(err?.message || "Unable to trigger emergency alert."), 5000);
+  } finally {
+    setLoaderVisibility(false);
+  }
+}
+
+async function clearEmergencyAlert() {
+  const { onlineTargets } = getOnlineTargetDevices();
+  const targetDevices = onlineTargets
+    .map((device) => getDeviceOptionValue(device))
+    .filter(Boolean);
+
+  if (!targetDevices.length) {
+    showNotice("warning", "No Online Device Selected", "Select at least one online device before clearing alert.", 5000);
+    return;
+  }
+
+  if (!(await showConfirmDialog("Clear Emergency Alert", "This will clear the emergency alert on the selected devices. Continue?", "Yes, Clear", "Cancel"))) {
+    return;
+  }
+
+  setLoaderVisibility(true);
+  updateUploadProgress(10, `Clearing emergency alert from ${targetDevices.length} device${targetDevices.length === 1 ? "" : "s"}...`);
+
+  try {
+    const requests = targetDevices.map(async (targetDevice) => {
+      const res = await fetch(`${targetDevice}/config/clear-emergency`, {
+        method: "POST",
+        headers: buildCmsAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed (HTTP ${res.status})`);
+      }
+      return await res.json();
+    });
+
+    await Promise.allSettled(requests);
+    updateUploadProgress(100, "Emergency alert cleared successfully.");
+    showNotice("success", "Alert Cleared", "Emergency alert has been cleared from selected devices.", 3000);
+  } catch (err) {
+    showNotice("error", "Clear Failed", String(err?.message || "Unable to clear emergency alert."), 5000);
+  } finally {
+    setLoaderVisibility(false);
+  }
+}
+
 async function saveConfig() {
   const config = buildConfigFromForm();
   const { onlineTargets } = getOnlineTargetDevices();
@@ -5662,6 +5915,18 @@ window.editSectionTemplate = editSectionTemplate;
     "tickerColor",
     "tickerBgColor",
     "tickerSpeed",
+    "clockEnabled",
+    "clockFormat",
+    "clockPosition",
+    "weatherEnabled",
+    "weatherCity",
+    "weatherUnit",
+    "weatherPosition",
+    "emergencyEnabled",
+    "emergencyType",
+    "emergencyTitle",
+    "emergencyMessage",
+    "emergencySound",
     "scheduleStart",
     "scheduleEnd",
     "scheduleFallbackMessage",

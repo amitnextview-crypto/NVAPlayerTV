@@ -257,6 +257,12 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
             if ("/config/auto-reopen".equals(uri) && Method.POST.equals(session.getMethod())) {
                 return handleAutoReopen(session);
             }
+            if ("/config/trigger-emergency".equals(uri) && Method.POST.equals(session.getMethod())) {
+                return handleTriggerEmergency(session);
+            }
+            if ("/config/clear-emergency".equals(uri) && Method.POST.equals(session.getMethod())) {
+                return handleClearEmergency(session);
+            }
             if ("/config/upload-app-update".equals(uri) && Method.POST.equals(session.getMethod())) {
                 return handleAppUpdateUpload(session);
             }
@@ -366,12 +372,15 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         // app-data reset. Keep the saved player configuration, setup state and
         // system-granted permissions intact; only remove CMS-uploaded content.
         deleteRecursively(new File(context.getFilesDir(), MEDIA_ROOT_DIR));
+        
+        // Emit event to clear video cache and playback state in React Native
         JSONObject command = new JSONObject();
-        command.put("action", "clear-uploaded-media");
+        command.put("action", "clear-cache-and-playback");
         EmbeddedCmsRuntime.emitEvent("device-command", command);
+        
         JSONObject out = new JSONObject();
         out.put("success", true);
-        out.put("message", "Uploaded CMS media cleared. Saved settings and permissions were kept.");
+        out.put("message", "Uploaded CMS media, video cache, and playback state cleared. Saved settings and permissions were kept.");
         return json(out);
     }
 
@@ -1283,6 +1292,25 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         return json(payload);
     }
 
+    private Response handleTriggerEmergency(IHTTPSession session) throws Exception {
+        JSONObject body = readJsonBody(session);
+        JSONObject payload = new JSONObject();
+        payload.put("success", true);
+        payload.put("type", body.optString("type", "FIRE"));
+        payload.put("title", body.optString("title", "EMERGENCY ALERT"));
+        payload.put("message", body.optString("message", "PLEASE EVACUATE IMMEDIATELY!"));
+        payload.put("sound", body.optBoolean("sound", false));
+        EmbeddedCmsRuntime.emitEvent("emergency-alert-triggered", payload);
+        return json(payload);
+    }
+
+    private Response handleClearEmergency(IHTTPSession session) throws Exception {
+        JSONObject payload = new JSONObject();
+        payload.put("success", true);
+        EmbeddedCmsRuntime.emitEvent("emergency-alert-cleared", payload);
+        return json(payload);
+    }
+
     private Response handleAppUpdateUpload(IHTTPSession session) throws Exception {
         Map<String, String> files = new HashMap<>();
         session.parseBody(files);
@@ -1520,6 +1548,28 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         JSONObject cache = new JSONObject();
         cache.put("videoMB", 2048);
         out.put("cache", cache);
+        JSONObject widgets = new JSONObject();
+        JSONObject clock = new JSONObject();
+        clock.put("enabled", false);
+        clock.put("format", "12h");
+        clock.put("position", "top-left");
+        clock.put("transparency", 0.5);
+        widgets.put("clock", clock);
+        JSONObject weather = new JSONObject();
+        weather.put("enabled", false);
+        weather.put("city", "Delhi");
+        weather.put("unit", "celsius");
+        weather.put("position", "top-right");
+        weather.put("transparency", 0.5);
+        widgets.put("weather", weather);
+        JSONObject emergencyAlert = new JSONObject();
+        emergencyAlert.put("enabled", false);
+        emergencyAlert.put("type", "FIRE");
+        emergencyAlert.put("title", "EMERGENCY ALERT");
+        emergencyAlert.put("message", "PLEASE EVACUATE IMMEDIATELY!");
+        emergencyAlert.put("sound", false);
+        widgets.put("emergencyAlert", emergencyAlert);
+        out.put("widgets", widgets);
         return out;
     }
 

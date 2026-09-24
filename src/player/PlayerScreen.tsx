@@ -4,6 +4,9 @@ import Video, { BufferingStrategyType } from "react-native-video";
 import { WebView } from "react-native-webview";
 import SlideRenderer from "./SlideRenderer";
 import Ticker from "./Ticker";
+import ClockWidget from "./ClockWidget";
+import WeatherWidget from "./WeatherWidget";
+import EmergencyAlertWidget from "./EmergencyAlertWidget";
 
 const GRID_GAP = 0;
 
@@ -28,6 +31,8 @@ export default function PlayerScreen({
   uploadCountsBySection,
   onPlaybackChange,
   onPlaybackError,
+  emergencyAlert,
+  onClearEmergencyAlert,
 }: any) {
   // App resolves the selected profile before rendering the player.  Keeping this
   // check here makes the fallback immediate when the active slot changes.
@@ -411,6 +416,14 @@ export default function PlayerScreen({
     return <View style={{ flex: 1, backgroundColor: fallbackBgColor }} />;
   }
 
+  const widgets = config?.widgets || {};
+  const clockConfig = widgets.clock || {};
+  const weatherConfig = widgets.weather || {};
+  const emergencyConfig = widgets.emergencyAlert || {};
+
+  // Use emergency alert from parent prop (triggered from CMS)
+  const emergencyActive = emergencyAlert?.active || false;
+
   return (
     <View style={{ flex: 1, backgroundColor: config.bgColor }}>
       {config.ticker?.text && config.ticker?.position === "top" ? (
@@ -443,6 +456,20 @@ export default function PlayerScreen({
       {config.ticker?.text && config.ticker?.position !== "top" ? (
         <Ticker ticker={config.ticker} />
       ) : null}
+
+      {/* Widgets */}
+      {clockConfig.enabled && <ClockWidget config={clockConfig} />}
+      {weatherConfig.enabled && <WeatherWidget config={weatherConfig} />}
+      <EmergencyAlertWidget
+        alert={{
+          active: emergencyActive,
+          type: emergencyAlert?.type || "FIRE",
+          title: emergencyAlert?.title || "EMERGENCY ALERT",
+          message: emergencyAlert?.message || "PLEASE EVACUATE IMMEDIATELY!",
+          sound: emergencyAlert?.sound || false,
+        }}
+        onClear={onClearEmergencyAlert}
+      />
     </View>
   );
 }

@@ -1611,4 +1611,80 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
         return true;
     }
 
+    private static android.media.MediaPlayer sirenPlayer = null;
+    private static android.media.ToneGenerator toneGenerator = null;
+    private static java.util.Timer sirenTimer = null;
+
+    @ReactMethod
+    public void playSirenAlarm() {
+        try {
+            if (sirenPlayer != null && sirenPlayer.isPlaying()) {
+                return;
+            }
+            Context context = reactContext.getApplicationContext();
+            sirenPlayer = new android.media.MediaPlayer();
+            int resourceId = context.getResources().getIdentifier("siren", "raw", context.getPackageName());
+            if (resourceId != 0) {
+                android.content.res.AssetFileDescriptor afd = context.getResources().openRawResourceFd(resourceId);
+                sirenPlayer.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
+                afd.close();
+                sirenPlayer.setAudioStreamType(android.media.AudioManager.STREAM_ALARM);
+                sirenPlayer.setLooping(true);
+                sirenPlayer.prepare();
+                sirenPlayer.start();
+            } else {
+                // Fallback: use ToneGenerator for siren effect
+                if (toneGenerator != null) {
+                    toneGenerator.release();
+                }
+                android.media.AudioManager audioManager = (android.media.AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+                toneGenerator = new android.media.ToneGenerator(android.media.AudioManager.STREAM_ALARM, 100);
+                
+                // Create alternating high-low tone pattern
+                sirenTimer = new java.util.Timer();
+                sirenTimer.scheduleAtFixedRate(new java.util.TimerTask() {
+                    private boolean high = true;
+                    @Override
+                    public void run() {
+                        if (toneGenerator != null) {
+                            toneGenerator.stopTone();
+                            if (high) {
+                                toneGenerator.startTone(android.media.ToneGenerator.TONE_CDMA_HIGH_L, 500);
+                            } else {
+                                toneGenerator.startTone(android.media.ToneGenerator.TONE_CDMA_LOW_L, 500);
+                            }
+                            high = !high;
+                        }
+                    }
+                }, 0, 500);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @ReactMethod
+    public void stopSirenAlarm() {
+        try {
+            if (sirenPlayer != null) {
+                if (sirenPlayer.isPlaying()) {
+                    sirenPlayer.stop();
+                }
+                sirenPlayer.reset();
+                sirenPlayer.release();
+                sirenPlayer = null;
+            }
+            if (sirenTimer != null) {
+                sirenTimer.cancel();
+                sirenTimer = null;
+            }
+            if (toneGenerator != null) {
+                toneGenerator.stopTone();
+                toneGenerator.release();
+                toneGenerator = null;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 }
