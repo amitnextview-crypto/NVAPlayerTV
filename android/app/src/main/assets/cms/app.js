@@ -6080,6 +6080,11 @@ async function refreshFileManager() {
     return;
   }
 
+  if (targetDevice === "all") {
+    showNotice("warning", "Multiple Devices Selected", "File Manager supports only one device at a time. Please select a single device.", 4000);
+    return;
+  }
+
   try {
     const path = currentFileManagerPath || "";
     const url = `${targetDevice}/file-manager/list?path=${encodeURIComponent(path)}`;
@@ -6216,6 +6221,11 @@ async function createFolder() {
     return;
   }
 
+  if (targetDevice === "all") {
+    showNotice("warning", "Multiple Devices Selected", "File Manager supports only one device at a time. Please select a single device.", 4000);
+    return;
+  }
+
   try {
     const url = `${targetDevice}/file-manager/create-folder`;
     const res = await fetch(url, {
@@ -6245,6 +6255,11 @@ async function deleteFile(path) {
   const targetDevice = getSelectedDeviceValue();
   if (!targetDevice) {
     showNotice("warning", "No Device Selected", "Select a device first", 3000);
+    return;
+  }
+
+  if (targetDevice === "all") {
+    showNotice("warning", "Multiple Devices Selected", "File Manager supports only one device at a time. Please select a single device.", 4000);
     return;
   }
 
@@ -6278,6 +6293,11 @@ async function renameFile(path) {
     return;
   }
 
+  if (targetDevice === "all") {
+    showNotice("warning", "Multiple Devices Selected", "File Manager supports only one device at a time. Please select a single device.", 4000);
+    return;
+  }
+
   try {
     const url = `${targetDevice}/file-manager/rename`;
     const res = await fetch(url, {
@@ -6307,6 +6327,11 @@ async function uploadFiles(input) {
   const targetDevice = getSelectedDeviceValue();
   if (!targetDevice) {
     showNotice("warning", "No Device Selected", "Select a device first", 3000);
+    return;
+  }
+
+  if (targetDevice === "all") {
+    showNotice("warning", "Multiple Devices Selected", "File Manager supports only one device at a time. Please select a single device.", 4000);
     return;
   }
 
@@ -6405,6 +6430,11 @@ async function moveFile(sourcePath, targetPath) {
   const targetDevice = getSelectedDeviceValue();
   if (!targetDevice) {
     showNotice("warning", "No Device Selected", "Select a device first", 3000);
+    return;
+  }
+
+  if (targetDevice === "all") {
+    showNotice("warning", "Multiple Devices Selected", "File Manager supports only one device at a time. Please select a single device.", 4000);
     return;
   }
 

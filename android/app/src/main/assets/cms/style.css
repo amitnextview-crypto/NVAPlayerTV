@@ -4156,7 +4156,7 @@ body.tv-compact-mode.tv-screen-portrait .right-col {
 }
 
 .message-panel.message-warning {
-  border-color: rgba(247, 165, 63, 0.72);
+  border-color: rgba(255, 200, 0, 0.8);
 }
 
 .message-panel.message-info {
@@ -4214,9 +4214,9 @@ body.tv-compact-mode.tv-screen-portrait .right-col {
 }
 
 .message-icon-warning {
-  color: #f7a53f;
-  background: rgba(247, 165, 63, 0.12);
-  border-color: rgba(247, 165, 63, 0.38);
+  color: #ffc800;
+  background: rgba(255, 200, 0, 0.15);
+  border-color: rgba(255, 200, 0, 0.5);
 }
 
 .message-icon-info {

@@ -2547,7 +2547,23 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
             // Get filename mapping from parameters
             Map<String, List<String>> params = session.getParameters();
             
-            // Process uploaded files
+            // Collect all filenames in order (filename_0, filename_1, etc.)
+            java.util.List<String> filenamesInOrder = new java.util.ArrayList<>();
+            if (params != null) {
+                int index = 0;
+                while (params.containsKey("filename_" + index)) {
+                    List<String> fnames = params.get("filename_" + index);
+                    if (fnames != null && !fnames.isEmpty()) {
+                        filenamesInOrder.add(fnames.get(0));
+                    }
+                    index++;
+                }
+            }
+            
+            android.util.Log.d("EmbeddedCmsServer", "Collected " + filenamesInOrder.size() + " filenames in order");
+            
+            // Process uploaded files in order
+            int fileIndex = 0;
             for (Map.Entry<String, String> entry : files.entrySet()) {
                 String key = entry.getKey();
                 String tempFilePath = entry.getValue();
@@ -2556,20 +2572,18 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
                     File tempFile = new File(tempFilePath);
                     if (tempFile.exists()) {
                         try {
-                            // Try to get original filename from form parameters
+                            // Get original filename from the ordered list
                             String originalFileName = null;
-                            // Extract index from key (e.g., "file_0" -> "0")
-                            String index = key.replace("file_", "");
-                            if (params != null && params.containsKey("filename_" + index)) {
-                                List<String> filenames = params.get("filename_" + index);
-                                if (filenames != null && !filenames.isEmpty()) {
-                                    originalFileName = filenames.get(0);
-                                }
+                            if (fileIndex < filenamesInOrder.size()) {
+                                originalFileName = filenamesInOrder.get(fileIndex);
                             }
                             
+                            // Fallback to temp file name if no filename found
                             if (originalFileName == null || originalFileName.isEmpty()) {
                                 originalFileName = tempFile.getName();
                             }
+                            
+                            android.util.Log.d("EmbeddedCmsServer", "File " + fileIndex + ": " + originalFileName);
                             
                             // Copy to target directory with original filename
                             String sanitizedFileName = sanitizeFileName(originalFileName);
@@ -2586,6 +2600,7 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
                             }
                             
                             uploadedFiles.put(sanitizedFileName);
+                            fileIndex++; // Move to next filename for next file
                         } catch (Exception e) {
                             // Log error but continue with other files
                             android.util.Log.e("EmbeddedCmsServer", "Error copying file: " + e.getMessage());
