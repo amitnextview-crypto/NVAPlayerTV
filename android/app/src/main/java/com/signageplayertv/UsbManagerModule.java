@@ -196,8 +196,8 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
         Log.d(TAG, "scanUsbState mountCount=" + mounts.size());
         boolean mounted = false;
         List<String> checkedMounts = new ArrayList<>();
-        // First pass: nvsign is the explicit signage source and must beat every generic
-        // media/Ads fallback, including one found on a different mounted drive.
+
+        // FIRST PRIORITY: USB pendrive Ads folder + nvsign/section1..3 files (highest priority)
         for (File mountRoot : mounts) {
             if (mountRoot == null) continue;
             String mountPath = mountRoot.getAbsolutePath();
@@ -209,15 +209,32 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
             // contains the generated JPG pages and React can refresh without an APK restart.
             convertPendingDocuments(resolveNamedDirectory(mountRoot, NVSIGN_DIR_NAME));
 
+            // Check USB nvsign section files first
             List<UsbMediaItem> sectionedFiles = collectNvsignSectionFiles(mountRoot);
             if (!sectionedFiles.isEmpty()) {
-                Log.d(TAG, "nvsign section file count for " + mountPath + " = " + sectionedFiles.size());
+                Log.d(TAG, "USB nvsign section file count for " + mountPath + " = " + sectionedFiles.size());
                 return UsbState.withMediaItems(mountPath, checkedMounts, sectionedFiles);
+            }
+
+            // Check USB Ads folder
+            File adsDir = resolveAdsDirectory(mountRoot);
+            Log.d(
+                    TAG,
+                    "USB Ads folder path=" + adsDir.getAbsolutePath()
+                            + " exists=" + adsDir.exists()
+                            + " isDir=" + adsDir.isDirectory()
+                            + " canRead=" + adsDir.canRead()
+            );
+            if (adsDir.exists() && adsDir.isDirectory() && adsDir.canRead()) {
+                List<File> playableFiles = collectPlayableFiles(adsDir);
+                Log.d(TAG, "USB Ads file count for " + mountPath + " = " + playableFiles.size());
+                if (!playableFiles.isEmpty()) {
+                    return UsbState.withPlaylist(mountPath, checkedMounts, playableFiles);
+                }
             }
         }
 
-        // Internal storage uses the same nvsign/section1..3 priority as an external USB drive.
-        // It is checked before generic USB folders so either location remains deterministic.
+        // SECOND PRIORITY: Internal storage nvsign/section1..3 files
         try {
             List<File> internalRoots = Arrays.asList(
                     Environment.getExternalStorageDirectory(),
@@ -229,52 +246,36 @@ public class UsbManagerModule extends ReactContextBaseJavaModule {
                 if (internalRoot == null || !internalRoot.exists()) continue;
                 convertPendingDocuments(resolveNamedDirectory(internalRoot, NVSIGN_DIR_NAME));
                 List<UsbMediaItem> storageFiles = collectSectionedFiles(internalRoot, NVSIGN_DIR_NAME);
-                Log.d(TAG, "main nvsign direct scan root=" + internalRoot.getAbsolutePath() + " count=" + storageFiles.size());
+                Log.d(TAG, "Storage nvsign direct scan root=" + internalRoot.getAbsolutePath() + " count=" + storageFiles.size());
                 if (storageFiles.isEmpty()) continue;
                 List<String> internalPaths = new ArrayList<>();
                 internalPaths.add(internalRoot.getAbsolutePath());
-                return UsbState.withMediaItems(internalRoot.getAbsolutePath(), internalPaths, storageFiles, "tvad", mounted);
+                // Set mounted to true for storage files so they play correctly
+                return UsbState.withMediaItems(internalRoot.getAbsolutePath(), internalPaths, storageFiles, "tvad", true);
             }
 
             List<UsbMediaItem> mediaStoreFiles = queryMediaStoreMainNvsignPlaylist();
             if (!mediaStoreFiles.isEmpty()) {
-                return UsbState.withMediaItems("nvsign", new ArrayList<>(), mediaStoreFiles, "tvad", mounted);
+                return UsbState.withMediaItems("nvsign", new ArrayList<>(), mediaStoreFiles, "tvad", true);
             }
         } catch (Exception error) {
             Log.w(TAG, "Main nvsign storage scan failed", error);
         }
 
-        // Second pass: retain legacy generic USB folders only when no nvsign media exists.
+        // Third pass: retain legacy generic USB folders only when no nvsign/Ads media exists.
         for (File mountRoot : mounts) {
             if (mountRoot == null) continue;
             String mountPath = mountRoot.getAbsolutePath();
             List<UsbMediaItem> mediaStoreFiles = queryMediaStorePlaylist(mountRoot);
-            Log.d(TAG, "mediaStore count for " + mountPath + " = " + mediaStoreFiles.size());
+            Log.d(TAG, "legacy mediaStore count for " + mountPath + " = " + mediaStoreFiles.size());
             if (!mediaStoreFiles.isEmpty()) {
                 return UsbState.withMediaItems(mountPath, checkedMounts, mediaStoreFiles);
             }
 
             List<UsbMediaItem> documentFiles = queryDocumentsProviderPlaylist(mountRoot);
-            Log.d(TAG, "documents count for " + mountPath + " = " + documentFiles.size());
+            Log.d(TAG, "legacy documents count for " + mountPath + " = " + documentFiles.size());
             if (!documentFiles.isEmpty()) {
                 return UsbState.withMediaItems(mountPath, checkedMounts, documentFiles);
-            }
-
-            File adsDir = resolveAdsDirectory(mountRoot);
-            Log.d(
-                    TAG,
-                    "raw folder path=" + adsDir.getAbsolutePath()
-                            + " exists=" + adsDir.exists()
-                            + " isDir=" + adsDir.isDirectory()
-                            + " canRead=" + adsDir.canRead()
-            );
-            if (!adsDir.exists() || !adsDir.isDirectory()) {
-                continue;
-            }
-            List<File> playableFiles = collectPlayableFiles(adsDir);
-            Log.d(TAG, "raw file count for " + mountPath + " = " + playableFiles.size());
-            if (!playableFiles.isEmpty()) {
-                return UsbState.withPlaylist(mountPath, checkedMounts, playableFiles);
             }
         }
 

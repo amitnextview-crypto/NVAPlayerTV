@@ -11,9 +11,9 @@ import android.content.Intent
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.widget.Toast
 
@@ -55,10 +55,16 @@ class MainActivity : ReactActivity() {
     skipAutoReopenRestoreThisLaunch =
       intent?.getBooleanExtra(EXTRA_SKIP_AUTO_REOPEN_RESTORE_ONCE, false) == true
     restoreAutoReopenOnLaunchIfNeeded()
+    
     window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     val keepAliveIntent = Intent(this, KioskKeepAliveService::class.java)
     ContextCompat.startForegroundService(this, keepAliveIntent)
     hideSystemUI()
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
   }
 
   override fun onResume() {
@@ -109,37 +115,18 @@ override fun onWindowFocusChanged(hasFocus: Boolean) {
   }
 
   private fun scheduleReopen() {
-    if (!isAutoReopenEnabled()) return
+    cancelScheduledReopen()
+    val prefs = getPrefs()
+    val autoReopenEnabled = prefs.getBoolean(KEY_AUTO_REOPEN_ENABLED, false)
+    val licenseActivated = prefs.getBoolean(KEY_LICENSE_ACTIVATED, false)
+    val autoReopenManualOff = prefs.getBoolean(KEY_AUTO_REOPEN_MANUAL_OFF, true)
 
-    // 1) In-process fast reopen (worked well on many Smart TVs).
-    reopenHandler.removeCallbacks(reopenRunnable)
-    reopenHandler.postDelayed(reopenRunnable, REOPEN_DELAY_MS)
-
-    // 2) OS alarm fallback for stricter TV builds through ReopenReceiver.
-    val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-    val pendingIntent = buildReopenPendingIntent()
-    val triggerAt = android.os.SystemClock.elapsedRealtime() + REOPEN_DELAY_MS
-
-    try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        alarmManager.setExactAndAllowWhileIdle(
-          AlarmManager.ELAPSED_REALTIME_WAKEUP,
-          triggerAt,
-          pendingIntent
-        )
-      } else {
-        alarmManager.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pendingIntent)
-      }
-    } catch (_: Exception) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        alarmManager.setAndAllowWhileIdle(
-          AlarmManager.ELAPSED_REALTIME_WAKEUP,
-          triggerAt,
-          pendingIntent
-        )
-      } else {
-        alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pendingIntent)
-      }
+    if (licenseActivated && autoReopenEnabled && !autoReopenManualOff) {
+      reopenHandler.postDelayed(reopenRunnable, REOPEN_DELAY_MS)
+      val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+      val pendingIntent = buildReopenPendingIntent()
+      val triggerAt = SystemClock.elapsedRealtime() + REOPEN_DELAY_MS
+      alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pendingIntent)
     }
   }
 

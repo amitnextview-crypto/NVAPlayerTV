@@ -5615,6 +5615,7 @@ async function saveConfig() {
 
     updateUploadProgress(92, "Applying settings instantly on selected TVs...");
     clearUnusedSectionsForLayout(targetDevices, config.layout || "fullscreen").catch(() => {});
+    
     cmsFormDirty = false;
     restartAfterUploadedMediaSave = false;
     clearCmsFormDraft();
@@ -5835,6 +5836,61 @@ window.__cmsSetSelectedOrigins = async (origins = []) => {
 };
 window.__cmsGetAccessOverrides = () => ({ ...(cmsAccessOverrides || {}) });
 window.__cmsReloadAccessOverrides = loadAccessOverrides;
+
+let cmsOnlyToggleState = true; // Track current toggle state (true = ON, false = OFF)
+
+async function openUsbStorageSettings() {
+  const targetDevices = getSelectedOrigins();
+  if (!targetDevices.length) {
+    return showNotice("warning", "No Device Selected", "Select a device first", 3000);
+  }
+
+  // Toggle the state
+  cmsOnlyToggleState = !cmsOnlyToggleState;
+  
+  try {
+    for (const target of targetDevices) {
+      const url = `${target}/config/toggle-cms-only`;
+      await fetch(url, {
+        method: "POST",
+        headers: buildCmsAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ cmsOnly: cmsOnlyToggleState }),
+      });
+    }
+    showNotice("success", "CMS Only " + (cmsOnlyToggleState ? "ON" : "OFF"), "CMS Only mode is now " + (cmsOnlyToggleState ? "ON" : "OFF") + ". " + (cmsOnlyToggleState ? "Only CMS content will play." : "USB/Storage files will play."), 2000);
+  } catch (err) {
+    showNotice("error", "Failed", String(err?.message || "Failed to toggle CMS Only mode"), 3000);
+    // Revert state on error
+    cmsOnlyToggleState = !cmsOnlyToggleState;
+  }
+  
+  // Update button color
+  updateCmsOnlyButtonColor();
+}
+
+function updateCmsOnlyButtonColor() {
+  const btn = document.getElementById("cmsOnlyToggleBtn");
+  if (!btn) return;
+  
+  // Remove existing color classes
+  btn.classList.remove("primary", "danger");
+  
+  // Add color based on state
+  if (cmsOnlyToggleState) {
+    // CMS Only ON - default primary color (blue)
+    btn.classList.add("primary");
+  } else {
+    // CMS Only OFF - red color
+    btn.classList.add("danger");
+  }
+}
+
+// Initialize button color on load
+document.addEventListener("DOMContentLoaded", () => {
+  updateCmsOnlyButtonColor();
+});
+
+window.openUsbStorageSettings = openUsbStorageSettings;
 window.addTemplateToSection = addTemplateToSection;
 window.showTemplateEditor = showTemplateEditor;
 window.deleteTemplateFromSection = deleteTemplateFromSection;
@@ -6011,3 +6067,366 @@ window.editSectionTemplate = editSectionTemplate;
     }, { passive: false });
   }
 });
+
+// File Manager Functions
+let currentFileManagerPath = "";
+let selectedFileItem = null;
+
+async function refreshFileManager() {
+  const targetDevice = getSelectedDeviceValue();
+  
+  if (!targetDevice) {
+    showNotice("warning", "No Device Selected", "Select a device first", 3000);
+    return;
+  }
+
+  try {
+    const path = currentFileManagerPath || "";
+    const url = `${targetDevice}/file-manager/list?path=${encodeURIComponent(path)}`;
+    
+    const res = await fetch(url, {
+      method: "GET",
+      headers: buildCmsAuthHeaders(),
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to list files");
+    }
+
+    const data = await res.json();
+    if (data.success) {
+      currentFileManagerPath = data.path;
+      renderFileList(data.files, data.path);
+    } else {
+      showNotice("error", "Error", data.error || "Failed to list files", 3000);
+    }
+  } catch (error) {
+    showNotice("error", "Error", "Failed to connect to device: " + error.message, 3000);
+  }
+}
+
+function renderFileList(files, path) {
+  const listEl = document.getElementById("fileManagerList");
+  const breadcrumbEl = document.getElementById("fileManagerBreadcrumb");
+  
+  // Render breadcrumb
+  const pathParts = path.split("/").filter(p => p);
+  let breadcrumbHtml = '<span onclick="navigateToPath(\'\')">Home</span>';
+  let currentPath = "";
+  pathParts.forEach((part, index) => {
+    currentPath += "/" + part;
+    if (index === pathParts.length - 1) {
+      breadcrumbHtml += ` / <span>${part}</span>`;
+    } else {
+      breadcrumbHtml += ` / <span onclick="navigateToPath('${currentPath}')">${part}</span>`;
+    }
+  });
+  breadcrumbEl.innerHTML = breadcrumbHtml;
+
+  // Render file list
+  listEl.innerHTML = "";
+  if (files.length === 0) {
+    listEl.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--muted);">Empty folder</div>';
+    return;
+  }
+
+  files.forEach((file) => {
+    const item = document.createElement("div");
+    item.className = `file-item ${file.isDirectory ? "file-item-folder" : ""}`;
+    item.draggable = true;
+    item.dataset.path = file.path;
+    item.dataset.isDirectory = file.isDirectory;
+
+    const icon = file.isDirectory ? "📁" : getFileIcon(file.name);
+    const size = file.isDirectory ? "" : formatFileSize(file.size);
+
+    item.innerHTML = `
+      <span class="file-item-icon">${icon}</span>
+      <span class="file-item-name">${file.name}</span>
+      <span class="file-item-size">${size}</span>
+      <div class="file-item-actions">
+        ${file.isDirectory ? `<button class="btn secondary compact-btn" onclick="event.stopPropagation(); navigateToPath('${file.path}')">Open</button>` : ""}
+        <button class="btn warning compact-btn" onclick="event.stopPropagation(); renameFile('${file.path}')">Rename</button>
+        <button class="btn danger compact-btn" onclick="event.stopPropagation(); deleteFile('${file.path}')">Delete</button>
+      </div>
+    `;
+
+    if (file.isDirectory) {
+      item.onclick = () => navigateToPath(file.path);
+    }
+
+    // Drag and drop events
+    item.addEventListener("dragstart", handleDragStart);
+    item.addEventListener("dragover", handleDragOver);
+    item.addEventListener("dragleave", handleDragLeave);
+    item.addEventListener("drop", handleDrop);
+    item.addEventListener("dragend", handleDragEnd);
+
+    listEl.appendChild(item);
+  });
+}
+
+function getFileIcon(filename) {
+  const ext = filename.split(".").pop().toLowerCase();
+  const iconMap = {
+    mp4: "🎬",
+    mkv: "🎬",
+    avi: "🎬",
+    mov: "🎬",
+    jpg: "🖼️",
+    jpeg: "🖼️",
+    png: "🖼️",
+    gif: "🖼️",
+    mp3: "🎵",
+    wav: "🎵",
+    pdf: "📄",
+    txt: "📝",
+    json: "📋",
+    xml: "📋",
+    html: "🌐",
+    css: "🎨",
+    js: "📜",
+    apk: "📦",
+    zip: "📦",
+    rar: "📦",
+  };
+  return iconMap[ext] || "📄";
+}
+
+function formatFileSize(bytes) {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+async function navigateToPath(path) {
+  currentFileManagerPath = path;
+  await refreshFileManager();
+}
+
+async function createFolder() {
+  const name = prompt("Enter folder name:");
+  if (!name || !name.trim()) return;
+
+  const targetDevice = getSelectedDeviceValue();
+  if (!targetDevice) {
+    showNotice("warning", "No Device Selected", "Select a device first", 3000);
+    return;
+  }
+
+  try {
+    const url = `${targetDevice}/file-manager/create-folder`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: buildCmsAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        path: currentFileManagerPath,
+        name: name.trim(),
+      }),
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      await refreshFileManager();
+      showNotice("success", "Success", "Folder created", 2000);
+    } else {
+      showNotice("error", "Error", data.error || "Failed to create folder", 3000);
+    }
+  } catch (error) {
+    showNotice("error", "Error", "Failed to connect to device", 3000);
+  }
+}
+
+async function deleteFile(path) {
+  if (!confirm("Are you sure you want to delete this?")) return;
+
+  const targetDevice = getSelectedDeviceValue();
+  if (!targetDevice) {
+    showNotice("warning", "No Device Selected", "Select a device first", 3000);
+    return;
+  }
+
+  try {
+    const url = `${targetDevice}/file-manager/delete`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: buildCmsAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ path }),
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      await refreshFileManager();
+      showNotice("success", "Success", "Deleted successfully", 2000);
+    } else {
+      showNotice("error", "Error", data.error || "Failed to delete", 3000);
+    }
+  } catch (error) {
+    showNotice("error", "Error", "Failed to connect to device", 3000);
+  }
+}
+
+async function renameFile(path) {
+  const name = prompt("Enter new name:");
+  if (!name || !name.trim()) return;
+
+  const targetDevice = getSelectedDeviceValue();
+  if (!targetDevice) {
+    showNotice("warning", "No Device Selected", "Select a device first", 3000);
+    return;
+  }
+
+  try {
+    const url = `${targetDevice}/file-manager/rename`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: buildCmsAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        oldPath: path,
+        newName: name.trim(),
+      }),
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      await refreshFileManager();
+      showNotice("success", "Success", "Renamed successfully", 2000);
+    } else {
+      showNotice("error", "Error", data.error || "Failed to rename", 3000);
+    }
+  } catch (error) {
+    showNotice("error", "Error", "Failed to connect to device", 3000);
+  }
+}
+
+async function uploadFiles(input) {
+  if (!input.files || input.files.length === 0) return;
+
+  const targetDevice = getSelectedDeviceValue();
+  if (!targetDevice) {
+    showNotice("warning", "No Device Selected", "Select a device first", 3000);
+    return;
+  }
+
+  setLoaderVisibility(true);
+  updateUploadProgress(10, "Uploading files...");
+
+  try {
+    const formData = new FormData();
+    for (let i = 0; i < input.files.length; i++) {
+      const file = input.files[i];
+      formData.append("file_" + i, file);
+      formData.append("filename_" + i, file.name);
+      updateUploadProgress(10 + ((i + 1) / input.files.length) * 80, `Preparing ${file.name}...`);
+    }
+
+    const url = `${targetDevice}/file-manager/upload?path=${encodeURIComponent(currentFileManagerPath)}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: buildCmsAuthHeaders(),
+      body: formData,
+    });
+
+    updateUploadProgress(95, "Finalizing upload...");
+    
+    const data = await res.json();
+    if (data.success) {
+      await refreshFileManager();
+      
+      // Temporarily disabled USB refresh to prevent crash
+      /*if (currentFileManagerPath.includes("nvsign")) {
+        try {
+          await fetch(`${targetDevice}/api/usb-refresh`, {
+            method: "POST",
+            headers: buildCmsAuthHeaders(),
+          });
+        } catch (e) {
+          // Ignore refresh error
+        }
+      }*/
+      
+      showNotice("success", "Success", `${input.files.length} file(s) uploaded successfully`, 2000);
+    } else {
+      showNotice("error", "Error", data.error || "Failed to upload files", 3000);
+    }
+  } catch (error) {
+    showNotice("error", "Error", "Failed to upload files", 3000);
+  } finally {
+    setLoaderVisibility(false);
+    input.value = "";
+  }
+}
+
+// Drag and Drop Handlers
+let draggedItem = null;
+
+function handleDragStart(e) {
+  draggedItem = e.target;
+  e.target.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  const item = e.target.closest(".file-item");
+  if (item && item.dataset.isDirectory === "true" && item !== draggedItem) {
+    item.classList.add("drag-over");
+  }
+}
+
+function handleDragLeave(e) {
+  const item = e.target.closest(".file-item");
+  if (item) {
+    item.classList.remove("drag-over");
+  }
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  const item = e.target.closest(".file-item");
+  if (item && item.dataset.isDirectory === "true" && draggedItem && item !== draggedItem) {
+    moveFile(draggedItem.dataset.path, item.dataset.path);
+  }
+  item?.classList.remove("drag-over");
+}
+
+function handleDragEnd(e) {
+  e.target.classList.remove("dragging");
+  document.querySelectorAll(".file-item").forEach(item => {
+    item.classList.remove("drag-over");
+  });
+  draggedItem = null;
+}
+
+async function moveFile(sourcePath, targetPath) {
+  const targetDevice = getSelectedDeviceValue();
+  if (!targetDevice) {
+    showNotice("warning", "No Device Selected", "Select a device first", 3000);
+    return;
+  }
+
+  try {
+    const url = `${targetDevice}/file-manager/move`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: buildCmsAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        sourcePath,
+        targetPath,
+      }),
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      await refreshFileManager();
+      showNotice("success", "Success", "File moved successfully", 2000);
+    } else {
+      showNotice("error", "Error", data.error || "Failed to move file", 3000);
+    }
+  } catch (error) {
+    showNotice("error", "Error", "Failed to connect to device", 3000);
+  }
+}

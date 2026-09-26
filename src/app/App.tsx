@@ -1220,6 +1220,15 @@ export default function App() {
             setPlayerPaused(payload?.paused === true);
             return;
           }
+          if (action === "open-usb-settings") {
+            setShowUsbSettings(true);
+            return;
+          }
+          if (action === "toggle-cms-only") {
+            const cmsOnly = payload?.cmsOnly !== false;
+            sourceManagerRef.current.setCmsOnlyMode(cmsOnly);
+            return;
+          }
           if (action === "force-sync" || action === "refresh-content" || action === "refresh") {
             sourceManagerRef.current.onCmsUpdate();
             await refreshPlayerMediaImmediately();

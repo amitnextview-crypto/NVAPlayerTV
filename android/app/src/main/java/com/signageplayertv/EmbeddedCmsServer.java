@@ -74,11 +74,16 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
     private final Object chunkUploadLock = new Object();
     // Process-only state: app restart always resumes normal playback.
     private volatile boolean playerPaused = false;
+    private static UsbManagerModule usbManagerModule;
 
     public EmbeddedCmsServer(Context context, int port) {
         super("0.0.0.0", port);
         this.context = context.getApplicationContext();
         this.assetManager = this.context.getAssets();
+    }
+
+    public static void setUsbManagerModule(UsbManagerModule module) {
+        usbManagerModule = module;
     }
 
     void resetPlayerControlSession() {
@@ -257,6 +262,12 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
             if ("/config/auto-reopen".equals(uri) && Method.POST.equals(session.getMethod())) {
                 return handleAutoReopen(session);
             }
+            if ("/config/usb-settings".equals(uri) && Method.POST.equals(session.getMethod())) {
+                return handleUsbSettings(session);
+            }
+            if ("/config/toggle-cms-only".equals(uri) && Method.POST.equals(session.getMethod())) {
+                return handleToggleCmsOnly(session);
+            }
             if ("/config/trigger-emergency".equals(uri) && Method.POST.equals(session.getMethod())) {
                 return handleTriggerEmergency(session);
             }
@@ -268,6 +279,27 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
             }
             if ("/config/install-app-update".equals(uri) && Method.POST.equals(session.getMethod())) {
                 return handleInstallAppUpdate(session);
+            }
+            if ("/api/usb-refresh".equals(uri) && Method.POST.equals(session.getMethod())) {
+                return handleUsbRefresh(session);
+            }
+            if ("/file-manager/list".equals(uri) && Method.GET.equals(session.getMethod())) {
+                return handleFileManagerList(session);
+            }
+            if ("/file-manager/create-folder".equals(uri) && Method.POST.equals(session.getMethod())) {
+                return handleFileManagerCreateFolder(session);
+            }
+            if ("/file-manager/delete".equals(uri) && Method.POST.equals(session.getMethod())) {
+                return handleFileManagerDelete(session);
+            }
+            if ("/file-manager/rename".equals(uri) && Method.POST.equals(session.getMethod())) {
+                return handleFileManagerRename(session);
+            }
+            if ("/file-manager/upload".equals(uri) && Method.POST.equals(session.getMethod())) {
+                return handleFileManagerUpload(session);
+            }
+            if ("/file-manager/move".equals(uri) && Method.POST.equals(session.getMethod())) {
+                return handleFileManagerMove(session);
             }
             if ("/media-list".equals(uri)) {
                 return json(buildMediaList());
@@ -1292,6 +1324,31 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         return json(payload);
     }
 
+    private Response handleUsbSettings(IHTTPSession session) throws Exception {
+        JSONObject command = new JSONObject();
+        command.put("action", "open-usb-settings");
+        EmbeddedCmsRuntime.emitEvent("device-command", command);
+        
+        JSONObject payload = new JSONObject();
+        payload.put("success", true);
+        return json(payload);
+    }
+
+    private Response handleToggleCmsOnly(IHTTPSession session) throws Exception {
+        JSONObject body = readJsonBody(session);
+        boolean cmsOnly = body.optBoolean("cmsOnly", true);
+        
+        JSONObject command = new JSONObject();
+        command.put("action", "toggle-cms-only");
+        command.put("cmsOnly", cmsOnly);
+        EmbeddedCmsRuntime.emitEvent("device-command", command);
+        
+        JSONObject payload = new JSONObject();
+        payload.put("success", true);
+        payload.put("cmsOnly", cmsOnly);
+        return json(payload);
+    }
+
     private Response handleTriggerEmergency(IHTTPSession session) throws Exception {
         JSONObject body = readJsonBody(session);
         JSONObject payload = new JSONObject();
@@ -1581,12 +1638,15 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
 
     private JSONObject readConfig() throws Exception {
         File file = new File(context.getFilesDir(), CONFIG_FILE_NAME);
+        JSONObject config;
         if (!file.exists()) {
-            JSONObject config = defaultConfig();
+            config = defaultConfig();
             writeConfig(config);
-            return config;
+        } else {
+            config = new JSONObject(readTextFile(file));
         }
-        return new JSONObject(readTextFile(file));
+        
+        return config;
     }
 
     private void writeConfig(JSONObject config) throws Exception {
@@ -2281,6 +2341,336 @@ public final class EmbeddedCmsServer extends NanoHTTPD {
         Response response = newFixedLengthResponse(Response.Status.OK, mime, new ByteArrayInputStream(bytes), bytes.length);
         response.addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
         return withCors(response);
+    }
+
+    // File Manager Handlers
+    private Response handleFileManagerList(IHTTPSession session) throws Exception {
+        String path = getQueryParam(session, "path", null);
+        
+        // If no path specified, use the same paths as UsbManagerModule for internal storage
+        if (path == null || path.trim().isEmpty()) {
+            List<File> internalRoots = Arrays.asList(
+                    android.os.Environment.getExternalStorageDirectory(),
+                    new File("/storage/emulated/0"),
+                    new File("/sdcard"),
+                    new File("/mnt/sdcard")
+            );
+            for (File root : internalRoots) {
+                if (root != null && root.exists() && root.isDirectory()) {
+                    path = root.getAbsolutePath();
+                    break;
+                }
+            }
+            // Fallback to app files directory if none work
+            if (path == null || path.trim().isEmpty()) {
+                path = context.getFilesDir().getAbsolutePath();
+            }
+        }
+        
+        File dir = new File(path);
+        if (!dir.exists() || !dir.isDirectory()) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "Invalid path: " + path);
+            return json(error);
+        }
+        
+        JSONArray files = new JSONArray();
+        File[] items = dir.listFiles();
+        if (items != null) {
+            for (File item : items) {
+                JSONObject fileObj = new JSONObject();
+                fileObj.put("name", item.getName());
+                fileObj.put("path", item.getAbsolutePath());
+                fileObj.put("isDirectory", item.isDirectory());
+                fileObj.put("size", item.length());
+                fileObj.put("lastModified", item.lastModified());
+                files.put(fileObj);
+            }
+        }
+        
+        JSONObject result = new JSONObject();
+        result.put("success", true);
+        result.put("path", path);
+        result.put("files", files);
+        return json(result);
+    }
+
+    private Response handleFileManagerCreateFolder(IHTTPSession session) throws Exception {
+        JSONObject body = readJsonBody(session);
+        String path = body.optString("path", null);
+        
+        // If no path specified, use the same paths as UsbManagerModule for internal storage
+        if (path == null || path.trim().isEmpty()) {
+            List<File> internalRoots = Arrays.asList(
+                    android.os.Environment.getExternalStorageDirectory(),
+                    new File("/storage/emulated/0"),
+                    new File("/sdcard"),
+                    new File("/mnt/sdcard")
+            );
+            for (File root : internalRoots) {
+                if (root != null && root.exists() && root.isDirectory()) {
+                    path = root.getAbsolutePath();
+                    break;
+                }
+            }
+            // Fallback to app files directory if none work
+            if (path == null || path.trim().isEmpty()) {
+                path = context.getFilesDir().getAbsolutePath();
+            }
+        }
+        
+        String name = body.optString("name");
+        
+        if (name == null || name.trim().isEmpty()) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "Invalid folder name");
+            return json(error);
+        }
+        
+        File dir = new File(path, name.trim());
+        if (dir.exists()) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "Folder already exists");
+            return json(error);
+        }
+        
+        boolean created = dir.mkdirs();
+        JSONObject result = new JSONObject();
+        result.put("success", created);
+        if (!created) {
+            result.put("error", "Failed to create folder");
+        }
+        return json(result);
+    }
+
+    private Response handleFileManagerDelete(IHTTPSession session) throws Exception {
+        JSONObject body = readJsonBody(session);
+        String path = body.optString("path");
+        
+        if (path == null || path.trim().isEmpty()) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "Invalid path");
+            return json(error);
+        }
+        
+        File file = new File(path);
+        if (!file.exists()) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "File not found");
+            return json(error);
+        }
+        
+        deleteRecursively(file);
+        boolean deleted = !file.exists();
+        JSONObject result = new JSONObject();
+        result.put("success", deleted);
+        if (!deleted) {
+            result.put("error", "Failed to delete");
+        }
+        return json(result);
+    }
+
+    private Response handleFileManagerRename(IHTTPSession session) throws Exception {
+        JSONObject body = readJsonBody(session);
+        String oldPath = body.optString("oldPath");
+        String newName = body.optString("newName");
+        
+        if (oldPath == null || oldPath.trim().isEmpty() || newName == null || newName.trim().isEmpty()) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "Invalid parameters");
+            return json(error);
+        }
+        
+        File oldFile = new File(oldPath);
+        if (!oldFile.exists()) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "File not found");
+            return json(error);
+        }
+        
+        File newFile = new File(oldFile.getParent(), newName.trim());
+        boolean renamed = oldFile.renameTo(newFile);
+        
+        JSONObject result = new JSONObject();
+        result.put("success", renamed);
+        if (!renamed) {
+            result.put("error", "Failed to rename");
+        }
+        return json(result);
+    }
+
+    private Response handleFileManagerUpload(IHTTPSession session) throws Exception {
+        String path = getQueryParam(session, "path", null);
+        
+        // If no path specified, use the same paths as UsbManagerModule for internal storage
+        if (path == null || path.trim().isEmpty()) {
+            List<File> internalRoots = Arrays.asList(
+                    android.os.Environment.getExternalStorageDirectory(),
+                    new File("/storage/emulated/0"),
+                    new File("/sdcard"),
+                    new File("/mnt/sdcard")
+            );
+            for (File root : internalRoots) {
+                if (root != null && root.exists() && root.isDirectory()) {
+                    path = root.getAbsolutePath();
+                    break;
+                }
+            }
+            // Fallback to app files directory if none work
+            if (path == null || path.trim().isEmpty()) {
+                path = context.getFilesDir().getAbsolutePath();
+            }
+        }
+        
+        File dir = new File(path);
+        if (!dir.exists() || !dir.isDirectory()) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "Invalid path: " + path);
+            return json(error);
+        }
+        
+        JSONArray uploadedFiles = new JSONArray();
+        
+        try {
+            // Use NanoHTTPD's parseBody to handle multipart form data
+            Map<String, String> files = new HashMap<>();
+            session.parseBody(files);
+            
+            // Get filename mapping from parameters
+            Map<String, List<String>> params = session.getParameters();
+            
+            // Process uploaded files
+            for (Map.Entry<String, String> entry : files.entrySet()) {
+                String key = entry.getKey();
+                String tempFilePath = entry.getValue();
+                
+                if (tempFilePath != null && !tempFilePath.isEmpty()) {
+                    File tempFile = new File(tempFilePath);
+                    if (tempFile.exists()) {
+                        try {
+                            // Try to get original filename from form parameters
+                            String originalFileName = null;
+                            // Extract index from key (e.g., "file_0" -> "0")
+                            String index = key.replace("file_", "");
+                            if (params != null && params.containsKey("filename_" + index)) {
+                                List<String> filenames = params.get("filename_" + index);
+                                if (filenames != null && !filenames.isEmpty()) {
+                                    originalFileName = filenames.get(0);
+                                }
+                            }
+                            
+                            if (originalFileName == null || originalFileName.isEmpty()) {
+                                originalFileName = tempFile.getName();
+                            }
+                            
+                            // Copy to target directory with original filename
+                            String sanitizedFileName = sanitizeFileName(originalFileName);
+                            File targetFile = new File(dir, sanitizedFileName);
+                            
+                            // Use try-with-resources to ensure streams are closed
+                            try (java.io.FileInputStream fis = new java.io.FileInputStream(tempFile);
+                                 java.io.FileOutputStream fos = new java.io.FileOutputStream(targetFile)) {
+                                byte[] buffer = new byte[8192];
+                                int bytesRead;
+                                while ((bytesRead = fis.read(buffer)) != -1) {
+                                    fos.write(buffer, 0, bytesRead);
+                                }
+                            }
+                            
+                            uploadedFiles.put(sanitizedFileName);
+                        } catch (Exception e) {
+                            // Log error but continue with other files
+                            android.util.Log.e("EmbeddedCmsServer", "Error copying file: " + e.getMessage());
+                        } finally {
+                            // Always delete temp file
+                            if (tempFile.exists()) {
+                                tempFile.delete();
+                            }
+                        }
+                    }
+                }
+            }
+            
+            JSONObject result = new JSONObject();
+            result.put("success", true);
+            result.put("message", "Upload complete");
+            result.put("uploaded", uploadedFiles);
+            return json(result);
+        } catch (Exception e) {
+            android.util.Log.e("EmbeddedCmsServer", "Upload error: " + e.getMessage(), e);
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "Upload failed: " + e.getMessage());
+            return json(error);
+        }
+    }
+
+    private Response handleUsbRefresh(IHTTPSession session) throws Exception {
+        try {
+            // Trigger USB state refresh to rescan nvsign folders
+            // Temporarily disabled to prevent crash
+            /*if (usbManagerModule != null) {
+                usbManagerModule.refreshUsbState(null);
+            }*/
+            
+            JSONObject result = new JSONObject();
+            result.put("success", true);
+            result.put("message", "USB refresh triggered");
+            return json(result);
+        } catch (Exception e) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "Refresh failed: " + e.getMessage());
+            return json(error);
+        }
+    }
+
+    private Response handleFileManagerMove(IHTTPSession session) throws Exception {
+        JSONObject body = readJsonBody(session);
+        String sourcePath = body.optString("sourcePath");
+        String targetPath = body.optString("targetPath");
+        
+        if (sourcePath == null || sourcePath.trim().isEmpty() || targetPath == null || targetPath.trim().isEmpty()) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "Invalid parameters");
+            return json(error);
+        }
+        
+        File sourceFile = new File(sourcePath);
+        File targetFile = new File(targetPath, sourceFile.getName());
+        
+        if (!sourceFile.exists()) {
+            JSONObject error = new JSONObject();
+            error.put("success", false);
+            error.put("error", "Source file not found");
+            return json(error);
+        }
+        
+        boolean moved = sourceFile.renameTo(targetFile);
+        
+        JSONObject result = new JSONObject();
+        result.put("success", moved);
+        if (!moved) {
+            result.put("error", "Failed to move file");
+        }
+        return json(result);
+    }
+
+    private String getQueryParam(IHTTPSession session, String key, String defaultValue) {
+        Map<String, List<String>> params = session.getParameters();
+        if (params != null && params.containsKey(key) && params.get(key) != null && !params.get(key).isEmpty()) {
+            return params.get(key).get(0);
+        }
+        return defaultValue;
     }
 
     private byte[] readAssetBytes(String path) throws IOException {

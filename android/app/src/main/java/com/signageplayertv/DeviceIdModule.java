@@ -1667,10 +1667,6 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
     public void stopSirenAlarm() {
         try {
             if (sirenPlayer != null) {
-                if (sirenPlayer.isPlaying()) {
-                    sirenPlayer.stop();
-                }
-                sirenPlayer.reset();
                 sirenPlayer.release();
                 sirenPlayer = null;
             }
@@ -1679,12 +1675,10 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
                 sirenTimer = null;
             }
             if (toneGenerator != null) {
-                toneGenerator.stopTone();
                 toneGenerator.release();
                 toneGenerator = null;
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (Exception ignored) {
         }
     }
 }

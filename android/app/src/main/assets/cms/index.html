@@ -21,6 +21,7 @@
       </div>
       <div class="hero-actions">
         <button class="btn primary compact-btn" type="button" onclick="window.location.reload()">Refresh</button>
+        <button id="cmsOnlyToggleBtn" class="btn primary compact-btn" type="button" onclick="openUsbStorageSettings()">CMS Only Toggle</button>
         <button class="btn primary compact-btn" type="button"
           onclick="window.enterpriseSendPresetAction?.('refresh-content')">Sync</button>
         <button id="playerPauseToggleBtn" class="btn warning compact-btn" type="button"
@@ -30,6 +31,7 @@
         <button class="btn warning compact-btn" type="button" onclick="clearDeviceCache()">Clear Cache</button>
         <button class="btn danger compact-btn" type="button" onclick="clearDeviceData()">Clear Uploaded Media</button>
         <button class="btn warning compact-btn" type="button" onclick="restartDeviceApp()">Restart App</button>
+        <button class="btn success compact-btn" type="button" onclick="saveConfig()">Save Settings</button>
       </div>
     </header>
 
@@ -89,8 +91,11 @@
         </section>
 
         <section class="card compact-card">
-          <h2>Widget Settings</h2>
-          
+          <h2 onclick="toggleClock()" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+            <span>Clock Widget</span>
+            <span id="clockToggleIcon" style="font-size: 14px;">▼</span>
+          </h2>
+          <div id="clockContent" style="display: none;">
           <div class="section-panel" style="margin-bottom: 20px;">
             <label class="switch-row">
               <input type="checkbox" id="clockEnabled" />
@@ -119,7 +124,15 @@
             <label>Clock Background Color</label>
             <input type="color" id="clockBgColor" value="#000000" />
           </div>
+          </div>
+        </section>
 
+        <section class="card compact-card">
+          <h2 onclick="toggleWeather()" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+            <span>Weather Widget</span>
+            <span id="weatherToggleIcon" style="font-size: 14px;">▼</span>
+          </h2>
+          <div id="weatherContent" style="display: none;">
           <div class="section-panel" style="margin-bottom: 20px;">
             <label class="switch-row">
               <input type="checkbox" id="weatherEnabled" />
@@ -150,7 +163,15 @@
             <label>Weather Background Color</label>
             <input type="color" id="weatherBgColor" value="#000000" />
           </div>
+          </div>
+        </section>
 
+        <section class="card compact-card">
+          <h2 onclick="toggleEmergency()" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+            <span>Emergency Alert</span>
+            <span id="emergencyToggleIcon" style="font-size: 14px;">▼</span>
+          </h2>
+          <div id="emergencyContent" style="display: none;">
           <div class="section-panel" style="margin-bottom: 20px;">
             <label class="switch-row">
               <input type="checkbox" id="emergencyEnabled" />
@@ -176,6 +197,7 @@
             <button class="btn secondary" type="button" onclick="clearEmergencyAlert()" style="margin-top: 5px; background: #6b7280;">
               ✖ Clear Emergency Alert
             </button>
+          </div>
           </div>
         </section>
       </div>
@@ -421,6 +443,23 @@
             </div>
           </div>
         </section>
+
+        <section id="fileManagerCard" class="card compact-card">
+          <h2 onclick="toggleFileManager()" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+            <span>TV File Manager</span>
+            <span id="fileManagerToggleIcon" style="font-size: 14px;">▼</span>
+          </h2>
+          <div id="fileManagerContent" style="display: none;">
+            <div class="file-manager-toolbar">
+              <button class="btn primary compact-btn" type="button" onclick="createFolder()">📁 New Folder</button>
+              <button class="btn primary compact-btn" type="button" onclick="document.getElementById('fileUploadInput').click()">📤 Upload File</button>
+              <input type="file" id="fileUploadInput" multiple style="display: none;" onchange="uploadFiles(this)" />
+              <button class="btn secondary compact-btn" type="button" onclick="refreshFileManager()">🔄 Refresh</button>
+            </div>
+            <div id="fileManagerBreadcrumb" class="file-manager-breadcrumb"></div>
+            <div id="fileManagerList" class="file-manager-list"></div>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -535,6 +574,55 @@
       if (content.style.display === "none") {
         content.style.display = "block";
         icon.textContent = "▲";
+      } else {
+        content.style.display = "none";
+        icon.textContent = "▼";
+      }
+    }
+
+    function toggleClock() {
+      const content = document.getElementById("clockContent");
+      const icon = document.getElementById("clockToggleIcon");
+      if (content.style.display === "none") {
+        content.style.display = "block";
+        icon.textContent = "▲";
+      } else {
+        content.style.display = "none";
+        icon.textContent = "▼";
+      }
+    }
+
+    function toggleWeather() {
+      const content = document.getElementById("weatherContent");
+      const icon = document.getElementById("weatherToggleIcon");
+      if (content.style.display === "none") {
+        content.style.display = "block";
+        icon.textContent = "▲";
+      } else {
+        content.style.display = "none";
+        icon.textContent = "▼";
+      }
+    }
+
+    function toggleEmergency() {
+      const content = document.getElementById("emergencyContent");
+      const icon = document.getElementById("emergencyToggleIcon");
+      if (content.style.display === "none") {
+        content.style.display = "block";
+        icon.textContent = "▲";
+      } else {
+        content.style.display = "none";
+        icon.textContent = "▼";
+      }
+    }
+
+    function toggleFileManager() {
+      const content = document.getElementById("fileManagerContent");
+      const icon = document.getElementById("fileManagerToggleIcon");
+      if (content.style.display === "none") {
+        content.style.display = "block";
+        icon.textContent = "▲";
+        refreshFileManager();
       } else {
         content.style.display = "none";
         icon.textContent = "▼";

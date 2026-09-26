@@ -13,6 +13,7 @@ export type SourcePolicyState = {
   usbSuppressed: boolean;
   usbSourceType: "usb" | "tvad";
   cmsOnlyMode: boolean;
+  cmsOnlyModeManualOverride: boolean; // Track if user manually set CMS Only mode
 };
 
 export function createInitialSourcePolicyState(): SourcePolicyState {
@@ -27,6 +28,7 @@ export function createInitialSourcePolicyState(): SourcePolicyState {
     usbSourceType: "usb",
     // Keep CMS isolated by default. USB/Storage priority is explicitly enabled from its settings.
     cmsOnlyMode: true,
+    cmsOnlyModeManualOverride: false,
   };
 }
 
@@ -50,11 +52,12 @@ export function reduceUsbState(
   const mounted = !!usbState.mounted;
   const mountPath = String(usbState.mountPath || "");
   const mountChanged = current.usbMountPath !== mountPath;
+  const hasPlayableMedia = !!usbState.hasPlayableMedia;
 
   const next: SourcePolicyState = {
     ...current,
     usbMounted: mounted,
-    usbHasPlayableMedia: !!usbState.hasPlayableMedia,
+    usbHasPlayableMedia: hasPlayableMedia,
     usbPlaylist: Array.isArray(usbState.playlist) ? usbState.playlist : [],
     usbMountPath: mountPath,
     usbSourceType: usbState.sourceType === "tvad" ? "tvad" : "usb",
@@ -62,6 +65,18 @@ export function reduceUsbState(
 
   if (!mounted || mountChanged) {
     next.usbSuppressed = false;
+  }
+
+  // Auto-toggle CMS Only mode based on media presence, but respect manual override
+  // If user manually set CMS Only mode, don't auto-change it
+  if (!current.cmsOnlyModeManualOverride) {
+    if (hasPlayableMedia) {
+      // Auto-disable CMS Only mode when USB or Storage has playable media
+      next.cmsOnlyMode = false;
+    } else {
+      // Auto-enable CMS Only mode when no media is present
+      next.cmsOnlyMode = true;
+    }
   }
 
   next.activeSource = pickPlaybackSource(next);
@@ -93,6 +108,7 @@ export function reduceCmsOnlyMode(
   const next: SourcePolicyState = {
     ...current,
     cmsOnlyMode: !!cmsOnlyMode,
+    cmsOnlyModeManualOverride: true, // Mark as manually set by user
   };
   next.activeSource = pickPlaybackSource(next);
   return next;

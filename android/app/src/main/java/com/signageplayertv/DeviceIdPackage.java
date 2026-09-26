@@ -16,7 +16,12 @@ public class DeviceIdPackage implements ReactPackage {
 
         List<NativeModule> modules = new ArrayList<>();
         modules.add(new DeviceIdModule(reactContext));
-        modules.add(new UsbManagerModule(reactContext));
+        UsbManagerModule usbModule = new UsbManagerModule(reactContext);
+        modules.add(usbModule);
+        
+        // Set USB module reference in EmbeddedCmsServer for refresh functionality
+        com.signageplayertv.EmbeddedCmsServer.setUsbManagerModule(usbModule);
+        
         return modules;
     }
 

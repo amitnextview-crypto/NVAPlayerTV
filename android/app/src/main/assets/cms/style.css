@@ -53,10 +53,11 @@ body.cms-auth-locked {
 .container {
   max-width: 100vw;
   margin: 0 auto;
-  padding: var(--tv-shell-pad) var(--tv-shell-pad) 12px;
+  padding: 100px var(--tv-shell-pad) 12px;
   position: relative;
   z-index: 1;
   min-height: var(--tvvh);
+  overflow: visible;
 }
 
 .card {
@@ -86,6 +87,17 @@ body.cms-auth-locked {
   justify-content: space-between;
   gap: var(--tv-hero-gap);
   align-items: center;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: rgba(15, 25, 36, 0.95);
+  backdrop-filter: blur(10px);
+  padding: var(--tv-card-pad);
+  max-width: 100vw;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .hero-brand {
@@ -431,6 +443,17 @@ h3 {
   font-weight: 700;
   color: #eaf7ff;
   background: rgba(10, 20, 30, 0.84);
+}
+
+.btn.success {
+  background: #22c55e;
+  color: white;
+  border: 1px solid #22c55e;
+}
+
+.btn.success:hover {
+  background: #16a34a;
+  border-color: #16a34a;
 }
 
 .enterprise-inline-feedback.is-success {
@@ -3788,6 +3811,27 @@ body.tv-compact-mode.tv-screen-portrait .right-col {
 }
 
 @media (max-width: 420px) {
+  .container {
+    padding: var(--tv-shell-pad);
+  }
+
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+    margin-bottom: 10px;
+    position: static;
+  }
+
+  .hero-brand {
+    width: 100%;
+  }
+
+  .hero-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+
   .hero h1 {
     font-size: 23px;
   }
@@ -3804,6 +3848,227 @@ body.tv-compact-mode.tv-screen-portrait .right-col {
 
   #scheduleCard .schedule-panel {
     padding: 10px;
+  }
+
+  .card {
+    overflow-x: auto;
+  }
+
+  .device-checklist {
+    overflow-x: auto;
+  }
+
+  .file-manager-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .file-item-actions {
+    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .file-item-actions .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 375px) {
+  .container {
+    padding: var(--tv-shell-pad);
+  }
+
+  .hero {
+    margin-bottom: 10px;
+    position: static;
+  }
+
+  .hero-actions {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .hero-actions .btn {
+    font-size: 11px;
+    padding: 6px 8px;
+  }
+
+  .card {
+    padding: 8px;
+    overflow-x: auto;
+  }
+
+  .btn {
+    font-size: 12px;
+    padding: 7px 10px;
+  }
+
+  .selection-buttons .btn {
+    font-size: 11px;
+    padding: 6px 8px;
+  }
+
+  .file-manager-toolbar .btn {
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+
+  .file-item-actions {
+    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .file-item-actions .btn {
+    font-size: 10px;
+    padding: 4px 6px;
+    width: 100%;
+  }
+}
+
+@media (max-width: 360px) {
+  .container {
+    padding: var(--tv-shell-pad);
+  }
+
+  .hero {
+    margin-bottom: 10px;
+    position: static;
+  }
+
+  .hero-actions {
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+
+  .hero-actions .btn {
+    font-size: 10px;
+    padding: 5px 7px;
+  }
+
+  .card {
+    padding: 8px;
+    overflow-x: auto;
+  }
+
+  .btn {
+    font-size: 11px;
+    padding: 6px 9px;
+  }
+
+  .selection-buttons .btn {
+    font-size: 10px;
+    padding: 5px 7px;
+  }
+
+  .file-manager-toolbar .btn {
+    font-size: 10px;
+    padding: 4px 7px;
+  }
+
+  .file-item-actions {
+    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .file-item-actions .btn {
+    font-size: 9px;
+    padding: 3px 5px;
+    width: 100%;
+  }
+}
+
+@media (max-width: 320px) {
+  .container {
+    padding: var(--tv-shell-pad);
+  }
+
+  .hero {
+    padding: 6px;
+    margin-bottom: 10px;
+    position: static;
+  }
+
+  .hero-actions {
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .hero-actions .btn {
+    font-size: 9px;
+    padding: 4px 6px;
+    min-width: auto;
+  }
+
+  .hero-brand {
+    gap: 6px;
+  }
+
+  .hero-logo {
+    width: 36px;
+    height: 36px;
+  }
+
+  .hero h1 {
+    font-size: 14px;
+  }
+
+  .hero-sub {
+    font-size: 9px;
+  }
+
+  .card {
+    padding: 6px;
+    margin-bottom: 6px;
+    overflow-x: auto;
+  }
+
+  .btn {
+    font-size: 10px;
+    padding: 5px 8px;
+    white-space: nowrap;
+  }
+
+  .main-grid {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .device-checklist {
+    overflow-x: auto;
+  }
+
+  .selection-buttons .btn {
+    font-size: 9px;
+    padding: 4px 6px;
+  }
+
+  /* File manager specific fixes */
+  .file-manager-toolbar {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .file-manager-toolbar .btn {
+    font-size: 9px;
+    padding: 4px 6px;
+  }
+
+  .file-item {
+    font-size: 11px;
+  }
+
+  .file-item-actions {
+    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .file-item-actions .btn {
+    font-size: 9px;
+    padding: 3px 5px;
+    width: 100%;
   }
 
   #scheduleCard .days-grid {
@@ -4678,4 +4943,98 @@ body.tv-compact-mode.tv-screen-portrait .right-col {
   .hero h1 {
     font-size: 24px;
   }
+}
+
+/* File Manager Styles */
+.file-manager-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
+.file-manager-breadcrumb {
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  margin-bottom: 15px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.file-manager-breadcrumb span {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.file-manager-breadcrumb span:hover {
+  text-decoration: underline;
+}
+
+.file-manager-list {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid var(--card-border);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.file-item:hover {
+  background: rgba(37, 180, 255, 0.1);
+}
+
+.file-item.dragging {
+  opacity: 0.5;
+  background: rgba(37, 180, 255, 0.2);
+}
+
+.file-item.drag-over {
+  background: rgba(53, 225, 200, 0.2);
+  border: 2px dashed var(--accent-2);
+}
+
+.file-item-icon {
+  font-size: 24px;
+  margin-right: 12px;
+  min-width: 30px;
+}
+
+.file-item-name {
+  flex: 1;
+  font-size: 14px;
+}
+
+.file-item-size {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 15px;
+  min-width: 80px;
+}
+
+.file-item-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.file-item-actions button {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+.file-item-folder {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.file-item-selected {
+  background: rgba(37, 180, 255, 0.15);
 }
