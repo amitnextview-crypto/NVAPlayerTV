@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Dimensions, Easing, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Animated, Dimensions, Easing, Image, StyleSheet, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
 import RNFS from "react-native-fs";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { NativeModules } from "react-native";
 import {
   getMediaFiles,
   getCacheProgress,
@@ -1919,18 +1920,33 @@ export default function SlideRenderer({
   }
 
   if (!files.length) {
+    const qrCode = (NativeModules as any)?.DeviceIdModule?.getQrCodeForCms?.() || "";
+    const ipAddress = (NativeModules as any)?.DeviceIdModule?.getTvIpAddress?.() || "";
+    
     return (
       <View style={styles.emptyWrap}>
         <View style={styles.emptyCard}>
-          <View style={styles.emptyBadge}>
-            <Text style={styles.emptyBadgeText}>SECTION {sectionIndex + 1}</Text>
-          </View>
-          <Text style={styles.emptyTitle}>Section {sectionIndex + 1} is Empty</Text>
-          <View style={styles.emptyHintBox}>
-            <Text style={styles.emptyHintText}>
-              1. To play from a USB drive, add media to nvsign/section{sectionIndex + 1} and connect the drive to this TV.{"\n\n"}
-              2. To upload from a phone or computer, connect it to the same network as this TV. Press the Back button, open the QR Access page, and scan the QR code to open CMS.
-            </Text>
+          <View style={styles.emptyContentRow}>
+            <View style={styles.emptyLeft}>
+              {qrCode ? (
+                <Image source={{ uri: qrCode }} style={styles.qrCode} />
+              ) : null}
+              {ipAddress ? (
+                <Text style={styles.ipText}>{ipAddress}:8080</Text>
+              ) : null}
+            </View>
+            <View style={styles.emptyRight}>
+              <View style={styles.emptyBadge}>
+                <Text style={styles.emptyBadgeText}>SECTION {sectionIndex + 1}</Text>
+              </View>
+              <Text style={styles.emptyTitle}>Section {sectionIndex + 1} is Empty</Text>
+              <View style={styles.emptyHintBox}>
+                <Text style={styles.emptyHintText}>
+                  1. To play from a USB drive, add media to nvsign/section{sectionIndex + 1} and connect the drive to this TV.{"\n\n"}
+                  2. To upload from a phone or computer, connect it to the same network as this TV and scan the QR code to open CMS.
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
       </View>
@@ -2338,6 +2354,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
   textWrap: { backgroundColor: "#0b0f14" },
   textContentWrap: { padding: 20 },
   textContent: {
@@ -2553,15 +2570,40 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
   },
   emptyCard: {
-    width: "76%",
-    maxWidth: 360,
+    width: "85%",
+    maxWidth: 420,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#d5e0e8",
     backgroundColor: "#ffffff",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+  },
+  emptyContentRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    width: "100%",
+    gap: 20,
+  },
+  emptyLeft: {
+    flex: 0,
     alignItems: "center",
+  },
+  emptyRight: {
+    flex: 1,
+    alignItems: "flex-start",
+  },
+  qrCode: {
+    width: 100,
+    height: 100,
+    resizeMode: "contain" as const,
+  },
+  ipText: {
+    marginTop: 6,
+    color: "#12202d",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
   },
   emptyBadge: {
     paddingHorizontal: 12,
@@ -2580,24 +2622,23 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: "#12202d",
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "700",
-    textAlign: "center",
+    textAlign: "left",
+    marginBottom: 8,
   },
   emptyHintBox: {
-    marginTop: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 9,
+    marginTop: 0,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
     backgroundColor: "#f4f8fb",
     borderWidth: 1,
     borderColor: "#dbe7ef",
   },
   emptyHintText: {
     color: "#425466",
-    fontSize: 10,
-    textAlign: "center",
+    fontSize: 9,
     lineHeight: 14,
   },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
 });

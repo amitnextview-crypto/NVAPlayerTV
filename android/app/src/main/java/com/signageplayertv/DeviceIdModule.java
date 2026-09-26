@@ -390,6 +390,30 @@ public class DeviceIdModule extends ReactContextBaseJavaModule implements Activi
         }
     }
 
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    public String getQrCodeForCms() {
+        try {
+            Context context = reactContext.getApplicationContext();
+            String ip = EmbeddedCmsRuntime.getIpAddress(context);
+            if (ip == null || ip.isEmpty()) return "";
+            String url = "http://" + ip + ":8080";
+            return QrCodeHelper.buildQrDataUri(url);
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    public String getTvIpAddress() {
+        try {
+            Context context = reactContext.getApplicationContext();
+            String ip = EmbeddedCmsRuntime.getIpAddress(context);
+            return ip != null ? ip : "";
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
     @ReactMethod
     public void restartApp() {
         try {
